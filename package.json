@@ -1,0 +1,74 @@
+{
+  "name": "grainmap",
+  "private": true,
+  "version": "1.0.0",
+  "description": "照片地图应用，让你可以在地图上标记和记录你的照片故事",
+  "author": "moongou",
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "npm run build:electron && electron .",
+    "build": "tsc && vite build",
+    "build:electron": "tsc -p electron/tsconfig.json",
+    "preview": "vite preview",
+    "electron": "electron .",
+    "electron:dev": "npm run build:electron && electron .",
+    "dist": "npm run build && npm run build:electron && electron-builder",
+    "dist:mac": "npm run build && npm run build:electron && electron-builder --mac",
+    "dist:win": "npm run build && npm run build:electron && electron-builder --win"
+  },
+  "dependencies": {
+    "@amap/amap-jsapi-loader": "^1.0.1",
+    "better-sqlite3": "^12.0.0",
+    "electron-store": "^10.0.0",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.0.0",
+    "uuid": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.0"
+  },
+  "build": {
+    "appId": "com.grainmap.app",
+    "productName": "Grainmap",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "node_modules/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.photography",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    }
+  }
+}
