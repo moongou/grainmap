@@ -14,6 +14,7 @@ declare global {
         deletePhoto: (id: string) => Promise<boolean>;
         saveAIConfig: (userId: string, config: any) => Promise<any>;
         getAIConfig: (userId: string) => Promise<any>;
+        testAIConnection: (config: any) => Promise<{ success: boolean; models?: string[]; error?: string }>;
       };
       file: {
         selectImage: () => Promise<any>;

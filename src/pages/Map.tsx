@@ -26,7 +26,9 @@ function Map({ user, onLogout }: MapProps) {
   const [loading, setLoading] = useState(false);
   const [mapLoading, setMapLoading] = useState(true);
   const [mapType, setMapType] = useState<'standard' | 'satellite' | 'terrain'>('standard');
-  const [mapProvider, setMapProvider] = useState<'amap' | 'tianditu' | 'baidu' | 'osm'>('amap');
+  const [mapProvider, setMapProvider] = useState<'tianditu' | 'baidu'>('tianditu');
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
 
   // 选点地图引用
   const selectMapContainerRef = useRef<HTMLDivElement>(null);
@@ -47,10 +49,11 @@ function Map({ user, onLogout }: MapProps) {
   useEffect(() => {
     const initMap = async () => {
       try {
+        setMapLoading(true);
         // 从本地存储中获取地图配置
         const amapApiKey = await window.electronAPI.store.get('amapApiKey');
         const amapSec = await window.electronAPI.store.get('amapSecurityCode');
-        const mProvider = await window.electronAPI.store.get('mapProvider') || 'amap';
+        const mProvider = await window.electronAPI.store.get('mapProvider') || 'tianditu';
         const tKey = await window.electronAPI.store.get('tiandituKey');
 
         setMapProvider(mProvider as any);
@@ -62,13 +65,21 @@ function Map({ user, onLogout }: MapProps) {
           };
         }
 
+        // 我们需要 AMap 引擎来显示其他图层
         const AMap = await AMapLoader.load({
-          key: amapApiKey || 'YOUR_AMAP_KEY',
+          key: amapApiKey || '6be7a012c419356073167735399581f4', // 基础功能的默认 Key
           version: '2.0',
           plugins: ['AMap.ToolBar', 'AMap.Scale', 'AMap.Geocoder', 'AMap.ControlBar'],
+        }).catch(err => {
+          console.error('AMapLoader failed, retrying with default key...', err);
+          return AMapLoader.load({
+            key: '6be7a012c419356073167735399581f4',
+            version: '2.0',
+            plugins: ['AMap.ToolBar', 'AMap.Scale', 'AMap.Geocoder', 'AMap.ControlBar'],
+          });
         });
 
-        if (mapContainerRef.current) {
+        if (mapContainerRef.current && AMap) {
           const map = new AMap.Map(mapContainerRef.current, {
             zoom: 7.8,
             center: HAINAN_CENTER,
@@ -87,10 +98,10 @@ function Map({ user, onLogout }: MapProps) {
           map.addControl(controlBar);
 
           mapRef.current = map;
-          setMapLoading(false);
         }
       } catch (error) {
         console.error('Map initialization error:', error);
+      } finally {
         setMapLoading(false);
       }
     };
@@ -115,19 +126,10 @@ function Map({ user, onLogout }: MapProps) {
           `https://t0.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL=${x}&TILEROW=${y}&TILEMATRIX=${z}&tk=${tKey}`
       });
       map.setLayers([vecLayer, cvaLayer]);
-    } else if (provider === 'osm') {
-      // OSM 图层
-      const osmLayer = new (window as any).AMap.TileLayer({
-        getTileUrl: 'https://{a,b,c}.tile.openstreetmap.org/{z}/{x}/{y}.png'
-      });
-      map.setLayers([osmLayer]);
     } else if (provider === 'baidu') {
       // 百度地图图层 (模仿浏览器地址)
       const baiduLayer = new (window as any).AMap.TileLayer({
         getTileUrl: (x: number, y: number, z: number) => {
-          const res = Math.pow(2, z - 18);
-          const offsetX = x * res;
-          const offsetY = y * res;
           // 百度切片服务 URL，使用随机服务器以提高性能
           const server = Math.abs(x + y) % 4;
           return `https://maponline${server}.bdimg.com/tile/?qt=vtile&x=${x}&y=${y}&z=${z}&styles=pl&scaler=1&udt=20230519`;
@@ -152,15 +154,7 @@ function Map({ user, onLogout }: MapProps) {
   }, [mapType, mapProvider, showAddModal]);
 
   const updateMapLayers = async (mapInstance: any) => {
-    if (mapProvider === 'amap') {
-      if (mapType === 'satellite') {
-        const satellite = new (window as any).AMap.TileLayer.Satellite();
-        const roadNet = new (window as any).AMap.TileLayer.RoadNet();
-        mapInstance.setLayers([satellite, roadNet]);
-      } else {
-        mapInstance.setLayers([new (window as any).AMap.TileLayer()]);
-      }
-    } else if (mapProvider === 'tianditu') {
+    if (mapProvider === 'tianditu') {
       const tKey = await window.electronAPI.store.get('tiandituKey');
       if (!tKey) return;
       let layers = [];
@@ -193,20 +187,15 @@ function Map({ user, onLogout }: MapProps) {
         }));
       }
       mapInstance.setLayers(layers);
-    } else if (mapProvider === 'osm') {
-      const osmLayer = new (window as any).AMap.TileLayer({
-        getTileUrl: 'https://{a,b,c}.tile.openstreetmap.org/{z}/{x}/{y}.png'
-      });
-      mapInstance.setLayers([osmLayer]);
     } else if (mapProvider === 'baidu') {
       const baiduLayer = new (window as any).AMap.TileLayer({
         getTileUrl: (x: number, y: number, z: number) => {
           const server = Math.abs(x + y) % 4;
-          if (mapType === 'satellite') {
-            return `https://shangetu${server}.map.bdimg.com/it/u=x=${x};y=${y};z=${z};v=009;type=sate&fm=46`;
-          }
-          return `https://maponline${server}.bdimg.com/tile/?qt=vtile&x=${x}&y=${y}&z=${z}&styles=pl&scaler=1&udt=20230519`;
-        }
+          const styles = mapType === 'satellite' ? 'sh' : 'pl';
+          return `https://maponline${server}.bdimg.com/tile/?qt=vtile&x=${x}&y=${y}&z=${z}&styles=${styles}&scaler=1&udt=20230519`;
+        },
+        tileSize: 256,
+        zooms: [3, 19]
       });
       mapInstance.setLayers([baiduLayer]);
     }
@@ -219,7 +208,7 @@ function Map({ user, onLogout }: MapProps) {
         try {
           const amapApiKey = await window.electronAPI.store.get('amapApiKey');
           const amapSec = await window.electronAPI.store.get('amapSecurityCode');
-          const mProvider = await window.electronAPI.store.get('mapProvider') || 'amap';
+          const mProvider = await window.electronAPI.store.get('mapProvider') || 'tianditu';
           const tKey = await window.electronAPI.store.get('tiandituKey');
 
           if (amapSec) {
@@ -227,7 +216,7 @@ function Map({ user, onLogout }: MapProps) {
           }
 
           const AMap = await AMapLoader.load({
-            key: amapApiKey || 'YOUR_AMAP_KEY',
+            key: amapApiKey || '6be7a012c419356073167735399581f4',
             version: '2.0',
             plugins: ['AMap.ToolBar', 'AMap.Scale', 'AMap.Geocoder'],
           });
@@ -338,6 +327,34 @@ function Map({ user, onLogout }: MapProps) {
       if (result) {
         setSelectedImage(result.data);
         setSelectedImageName(result.name);
+
+        // 如果照片包含 EXIF 地理信息，则自动设置位置
+        if (result.exif && result.exif.latitude && result.exif.longitude) {
+          setNewPhoto(prev => ({
+            ...prev,
+            latitude: result.exif.latitude,
+            longitude: result.exif.longitude,
+          }));
+
+          // 在选点地图上定位
+          if (selectMapRef.current) {
+            const lnglat = [result.exif.longitude, result.exif.latitude];
+            selectMapRef.current.setCenter(lnglat);
+            selectMapRef.current.clearMap();
+            new (window as any).AMap.Marker({
+              position: lnglat,
+              map: selectMapRef.current
+            });
+
+            // 逆地理编码获取地址
+            const geocoder = new (window as any).AMap.Geocoder({ radius: 1000, extensions: 'all' });
+            geocoder.getAddress(lnglat, (status: string, gResult: any) => {
+              if (status === 'complete' && gResult.regeocode) {
+                setNewPhoto(prev => ({ ...prev, address: gResult.regeocode.formattedAddress }));
+              }
+            });
+          }
+        }
       }
     } catch (error) {
       console.error('Error selecting image:', error);
@@ -352,27 +369,44 @@ function Map({ user, onLogout }: MapProps) {
 
     setLoading(true);
     try {
-      // 保存图片到本地
-      const savedImage = await window.electronAPI.file.saveImage(selectedImage, user.id);
+      if (isEditing && editingPhotoId) {
+        // 更新现有照片
+        const updated = await window.electronAPI.db.updatePhoto(editingPhotoId, {
+          title: newPhoto.title || selectedImageName,
+          description: newPhoto.description || '',
+          latitude: newPhoto.latitude || 19.03,
+          longitude: newPhoto.longitude || 109.73,
+          address: newPhoto.address || '',
+          aiGeneratedText: newPhoto.aiGeneratedText || '',
+        });
 
-      // 创建照片记录
-      const photo = await window.electronAPI.db.createPhoto({
-        userId: user.id,
-        title: newPhoto.title || selectedImageName,
-        description: newPhoto.description || '',
-        imagePath: savedImage.path, // main.ts already returns app-data:// path
-        latitude: newPhoto.latitude || 19.03,
-        longitude: newPhoto.longitude || 109.73,
-        address: newPhoto.address || '',
-        aiGeneratedText: newPhoto.aiGeneratedText || '',
-      });
+        if (updated) {
+          setPhotos(prev => prev.map(p => p.id === updated.id ? updated : p));
+        }
+      } else {
+        // 保存新图片到本地
+        const savedImage = await window.electronAPI.file.saveImage(selectedImage, user.id);
 
-      setPhotos(prev => [photo, ...prev]);
+        // 创建新照片记录
+        const photo = await window.electronAPI.db.createPhoto({
+          userId: user.id,
+          title: newPhoto.title || selectedImageName,
+          description: newPhoto.description || '',
+          imagePath: savedImage.path, // main.ts already returns app-data:// path
+          latitude: newPhoto.latitude || 19.03,
+          longitude: newPhoto.longitude || 109.73,
+          address: newPhoto.address || '',
+          aiGeneratedText: newPhoto.aiGeneratedText || '',
+        });
+
+        setPhotos(prev => [photo, ...prev]);
+      }
+
       setShowAddModal(false);
       resetAddForm();
     } catch (error) {
-      console.error('Error adding photo:', error);
-      alert('添加照片失败');
+      console.error('Error saving photo:', error);
+      alert('保存照片失败');
     } finally {
       setLoading(false);
     }
@@ -490,6 +524,25 @@ function Map({ user, onLogout }: MapProps) {
     });
     setSelectedImage(null);
     setSelectedImageName('');
+    setIsEditing(false);
+    setEditingPhotoId(null);
+  };
+
+  const handleEditLocation = (photo: Photo) => {
+    setSelectedPhoto(null);
+    setNewPhoto({
+      title: photo.title,
+      description: photo.description,
+      latitude: photo.latitude,
+      longitude: photo.longitude,
+      address: photo.address,
+      aiGeneratedText: photo.aiGeneratedText,
+    });
+    setSelectedImage(photo.imagePath);
+    setSelectedImageName('已保存的照片');
+    setIsEditing(true);
+    setEditingPhotoId(photo.id);
+    setShowAddModal(true);
   };
 
   const handleAIGenerated = (text: string) => {
@@ -658,7 +711,7 @@ function Map({ user, onLogout }: MapProps) {
           {/* 左侧表单 */}
           <div className="w-[450px] flex flex-col h-full border-r border-gray-100 bg-white">
             <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50">
-              <h2 className="text-xl font-bold text-gray-900">添加新照片</h2>
+              <h2 className="text-xl font-bold text-gray-900">{isEditing ? '重新定位照片' : '添加新照片'}</h2>
               <button
                 onClick={() => {
                   setShowAddModal(false);
@@ -785,7 +838,7 @@ function Map({ user, onLogout }: MapProps) {
                 在地图上点击以选择拍摄地点
               </p>
             </div>
-            <div ref={selectMapContainerRef} className="w-full h-full" />
+            <div ref={selectMapContainerRef} className="w-full h-full cursor-red-crosshair" />
           </div>
         </div>
       )}
@@ -895,6 +948,7 @@ function Map({ user, onLogout }: MapProps) {
             setEditingPhoto(selectedPhoto);
             setSelectedPhoto(null);
           }}
+          onEditLocation={() => handleEditLocation(selectedPhoto)}
           onDelete={() => handleDeletePhoto(selectedPhoto.id)}
         />
       )}

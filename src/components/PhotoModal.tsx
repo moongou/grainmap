@@ -6,10 +6,11 @@ interface PhotoModalProps {
   photo: Photo;
   onClose: () => void;
   onEdit: () => void;
+  onEditLocation: () => void;
   onDelete: () => void;
 }
 
-function PhotoModal({ photo, onClose, onEdit, onDelete }: PhotoModalProps) {
+function PhotoModal({ photo, onClose, onEdit, onEditLocation, onDelete }: PhotoModalProps) {
   const [isFullScreen, setIsFullScreen] = useState(false);
 
   if (isFullScreen) {
@@ -131,7 +132,17 @@ function PhotoModal({ photo, onClose, onEdit, onDelete }: PhotoModalProps) {
             <div className="space-y-6">
               {/* 坐标信息 */}
               <div className="bg-gray-50/80 rounded-2xl p-5 border border-gray-100 backdrop-blur-sm">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">地理坐标</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">地理坐标</h3>
+                  <button
+                    onClick={onEditLocation}
+                    className="text-[10px] font-bold text-primary-600 hover:text-primary-700 hover:bg-primary-50 px-2 py-0.5 rounded transition-all flex items-center"
+                    title="在地图上重新选点"
+                  >
+                    <Edit3 className="w-2.5 h-2.5 mr-1" />
+                    重新选点
+                  </button>
+                </div>
                 <div className="flex flex-col space-y-3">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-400">纬度 (LAT)</span>

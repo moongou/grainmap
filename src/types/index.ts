@@ -24,7 +24,7 @@ export interface Photo {
 export interface AIConfig {
   id: string;
   userId: string;
-  provider: 'openai' | 'claude' | 'custom';
+  provider: 'openai' | 'claude' | 'ollama' | 'volcano' | 'custom';
   apiKey: string;
   apiUrl?: string;
   model?: string;

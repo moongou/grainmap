@@ -47,6 +47,15 @@ body {
   height: 100%;
 }
 
+.cursor-red-crosshair .amap-maps {
+  cursor: crosshair !important;
+}
+
+/* Custom cursor using SVG for better visibility */
+.cursor-red-crosshair .amap-maps, .cursor-red-crosshair {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23ef4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><line x1='12' y1='1' x2='12' y2='23'></line><line x1='1' y1='12' x2='23' y2='12'></line></svg>") 12 12, crosshair !important;
+}
+
 /* Custom marker styles */
 .custom-marker {
   position: relative;

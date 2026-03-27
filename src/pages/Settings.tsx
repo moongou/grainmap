@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Key, Globe, Bot, AlertCircle, MapPin } from 'lucide-react';
+import { ArrowLeft, Save, Key, Globe, Bot, AlertCircle, MapPin, Search, CheckCircle2 } from 'lucide-react';
 import { User, AIConfig } from '../types';
 
 interface SettingsProps {
@@ -16,16 +16,15 @@ const AI_PROVIDERS = [
 ];
 
 const MAP_PROVIDERS = [
-  { id: 'amap', name: '高德地图', needsKey: true, needsSecurity: true },
   { id: 'tianditu', name: '天地图', needsKey: true, needsSecurity: false },
   { id: 'baidu', name: '百度地图', needsKey: false, needsSecurity: false },
-  { id: 'osm', name: 'OpenStreetMap', needsKey: false, needsSecurity: false },
 ];
 
 function Settings({ user }: SettingsProps) {
   const navigate = useNavigate();
   const [, setAiConfig] = useState<AIConfig | null>(null);
   const [loading, setLoading] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -34,11 +33,10 @@ function Settings({ user }: SettingsProps) {
   const [apiKey, setApiKey] = useState('');
   const [apiUrl, setApiUrl] = useState('');
   const [model, setModel] = useState('');
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
 
   // Map state
-  const [mapProvider, setMapProvider] = useState<'amap' | 'tianditu' | 'baidu' | 'osm'>('amap');
-  const [amapApiKey, setAmapApiKey] = useState('');
-  const [amapSecurityCode, setAmapSecurityCode] = useState('');
+  const [mapProvider, setMapProvider] = useState<'tianditu' | 'baidu'>('tianditu');
   const [tiandituKey, setTiandituKey] = useState('');
 
   useEffect(() => {
@@ -57,12 +55,6 @@ function Settings({ user }: SettingsProps) {
       }
 
       // 加载地图设置
-      const amapKey = await window.electronAPI.store.get('amapApiKey');
-      if (amapKey) setAmapApiKey(amapKey);
-
-      const amapSec = await window.electronAPI.store.get('amapSecurityCode');
-      if (amapSec) setAmapSecurityCode(amapSec);
-
       const tKey = await window.electronAPI.store.get('tiandituKey');
       if (tKey) setTiandituKey(tKey);
 
@@ -79,152 +71,140 @@ function Settings({ user }: SettingsProps) {
     if (providerInfo) {
       setApiUrl(providerInfo.defaultUrl);
       setModel(providerInfo.defaultModel);
+      setAvailableModels([]); // Reset available models
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setTesting(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const result = await window.electronAPI.db.testAIConnection({
+        provider,
+        apiKey: provider === 'ollama' ? (apiKey || 'ollama') : apiKey,
+        apiUrl: apiUrl || undefined,
+      });
+
+      if (result.success) {
+        setAvailableModels(result.models || []);
+        setMessage('连接成功！已获取可用模型列表。');
+        setTimeout(() => setMessage(''), 3000);
+      } else {
+        setError(`连接失败: ${result.error}`);
+      }
+    } catch (error: any) {
+      setError(`连接错误: ${error.message || '未知错误'}`);
+    } finally {
+      setTesting(false);
     }
   };
 
   const handleSave = async () => {
-    if (!apiKey.trim()) {
-      setError('请输入 AI API Key');
-      return;
-    }
-
-    if (provider === 'custom' && !apiUrl.trim()) {
-      setError('请输入 API URL');
-      return;
-    }
-
     setLoading(true);
     setError('');
     setMessage('');
 
     try {
-      // 保存 AI 配置
+      // 1. 保存地图设置 (不依赖于 AI 设置)
+      await window.electronAPI.store.set('mapProvider', mapProvider);
+      if (tiandituKey) await window.electronAPI.store.set('tiandituKey', tiandituKey);
+
+      // 2. 保存 AI 配置
       const config = await window.electronAPI.db.saveAIConfig(user.id, {
         provider,
-        apiKey,
+        apiKey: provider === 'ollama' ? (apiKey || 'ollama') : apiKey,
         apiUrl: apiUrl || undefined,
         model: model || undefined,
       });
 
-      // 保存地图设置
-      await window.electronAPI.store.set('mapProvider', mapProvider);
-      if (amapApiKey) await window.electronAPI.store.set('amapApiKey', amapApiKey);
-      if (amapSecurityCode) await window.electronAPI.store.set('amapSecurityCode', amapSecurityCode);
-      if (tiandituKey) await window.electronAPI.store.set('tiandituKey', tiandituKey);
-
       setAiConfig(config);
       setMessage('设置已保存');
-
       setTimeout(() => setMessage(''), 3000);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving config:', error);
-      setError('保存失败，请重试');
+      setError(`保存失败: ${error.message || '请重试'}`);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="h-full bg-gray-50 flex flex-col">
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-4xl mx-auto px-4 py-4">
+        <div className="max-w-4xl mx-auto px-4 py-2.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <button
                 onClick={() => navigate('/map')}
-                className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg mr-4"
+                className="p-1 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg mr-2"
               >
-                <ArrowLeft className="w-5 h-5" />
+                <ArrowLeft className="w-4 h-4" />
               </button>
-              <h1 className="text-xl font-bold text-gray-900">设置</h1>
+              <h1 className="text-base font-bold text-gray-900">设置</h1>
             </div>
+            <button
+              onClick={handleSave}
+              disabled={loading}
+              className="btn-primary !py-1.5 !px-3 text-sm flex items-center shadow-sm"
+            >
+              {loading ? (
+                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5" />
+              ) : (
+                <Save className="w-3.5 h-3.5 mr-1.5" />
+              )}
+              保存设置
+            </button>
           </div>
         </div>
       </div>
 
       {/* Content - Scrollable container */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+        <div className="max-w-4xl mx-auto px-4 py-5 space-y-4">
           {/* Map Provider Settings Card */}
-          <div className="card">
-            <div className="flex items-center mb-6">
-              <div className="p-2 bg-primary-100 rounded-lg mr-3">
-                <MapPin className="w-6 h-6 text-primary-600" />
+          <div className="card !p-4">
+            <div className="flex items-center mb-3">
+              <div className="p-1.5 bg-primary-100 rounded-lg mr-2.5">
+                <MapPin className="w-4 h-4 text-primary-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">地图服务设置</h2>
-                <p className="text-sm text-gray-500">配置地图提供商和 API Key</p>
+                <h2 className="text-sm font-semibold text-gray-900">地图服务设置</h2>
+                <p className="text-[10px] text-gray-500">配置地图提供商和 API Key</p>
               </div>
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-4">
               {/* Provider Selection */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
                   地图提供商
                 </label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-2">
                   {MAP_PROVIDERS.map((p) => (
                     <button
                       key={p.id}
                       onClick={() => setMapProvider(p.id as any)}
-                      className={`p-3 rounded-lg border-2 text-center transition-colors ${
+                      className={`p-2 rounded-lg border-2 text-center transition-all ${
                         mapProvider === p.id
-                          ? 'border-primary-500 bg-primary-50'
-                          : 'border-gray-200 hover:border-gray-300'
+                          ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-200'
+                          : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'
                       }`}
                     >
-                      <div className="font-medium text-gray-900">{p.name}</div>
+                      <div className="text-sm font-medium text-gray-900">{p.name}</div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {mapProvider === 'amap' && (
-                <div className="space-y-4 pt-2 border-t border-gray-100">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      <div className="flex items-center">
-                        <Key className="w-4 h-4 mr-1" />
-                        高德地图 API Key
-                      </div>
-                    </label>
-                    <input
-                      type="text"
-                      value={amapApiKey}
-                      onChange={(e) => setAmapApiKey(e.target.value)}
-                      className="input-field"
-                      placeholder="输入你的高德地图 API Key"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      <div className="flex items-center">
-                        <Key className="w-4 h-4 mr-1" />
-                        高德地图安全密钥 (JSCode)
-                      </div>
-                    </label>
-                    <input
-                      type="text"
-                      value={amapSecurityCode}
-                      onChange={(e) => setAmapSecurityCode(e.target.value)}
-                      className="input-field"
-                      placeholder="必填，否则无法加载地图"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      你可以在 <a href="https://lbs.amap.com/" target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">高德开放平台</a> 控制台查看
-                    </p>
-                  </div>
-                </div>
-              )}
-
               {mapProvider === 'tianditu' && (
-                <div className="space-y-4 pt-2 border-t border-gray-100">
+                <div className="space-y-3 pt-3 border-t border-gray-100">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
                       <div className="flex items-center">
-                        <Key className="w-4 h-4 mr-1" />
+                        <Key className="w-3.5 h-3.5 mr-1 text-gray-400" />
                         天地图浏览器端 Token (tk)
                       </div>
                     </label>
@@ -232,10 +212,10 @@ function Settings({ user }: SettingsProps) {
                       type="text"
                       value={tiandituKey}
                       onChange={(e) => setTiandituKey(e.target.value)}
-                      className="input-field"
+                      className="input-field text-sm !py-1.5"
                       placeholder="输入你的天地图 tk"
                     />
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-[10px] text-gray-500 mt-1">
                       你可以在 <a href="https://www.tianditu.gov.cn/" target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">国家地理信息公共服务平台 (天地图)</a> 申请
                     </p>
                   </div>
@@ -243,42 +223,36 @@ function Settings({ user }: SettingsProps) {
               )}
 
               {mapProvider === 'baidu' && (
-                <div className="p-3 bg-blue-50 text-blue-700 rounded-lg text-sm flex items-start">
-                  <Globe className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" />
+                <div className="p-2.5 bg-blue-50 text-blue-700 rounded-lg text-[11px] flex items-start border border-blue-100">
+                  <Globe className="w-3.5 h-3.5 mr-2 mt-0.5 flex-shrink-0" />
                   <p>百度地图将以第三方图层方式载入。由于坐标系统差异 (BD-09)，标记位置可能会有少量偏移。</p>
-                </div>
-              )}
-
-              {mapProvider === 'osm' && (
-                <div className="p-3 bg-blue-50 text-blue-700 rounded-lg text-sm flex items-start">
-                  <Globe className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" />
-                  <p>OpenStreetMap 是完全免费的公开地图服务，不需要 API Key。但在国内加载速度可能较慢。</p>
                 </div>
               )}
             </div>
           </div>
 
           {/* AI Settings Card */}
-          <div className="card">
-            <div className="flex items-center mb-6">
-              <div className="p-2 bg-primary-100 rounded-lg mr-3">
-                <Bot className="w-6 h-6 text-primary-600" />
+          <div className="card !p-4">
+            <div className="flex items-center mb-3">
+              <div className="p-1.5 bg-primary-100 rounded-lg mr-2.5">
+                <Bot className="w-4 h-4 text-primary-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">AI 文案生成设置</h2>
-                <p className="text-sm text-gray-500">配置大语言模型以生成照片文案</p>
+                <h2 className="text-sm font-semibold text-gray-900">AI 文案生成设置</h2>
+                <p className="text-[10px] text-gray-500">配置大语言模型以生成照片文案</p>
               </div>
             </div>
 
             {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center text-red-700">
-                <AlertCircle className="w-5 h-5 mr-2" />
+              <div className="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg flex items-center text-red-700 text-xs animate-slide-up">
+                <AlertCircle className="w-3.5 h-3.5 mr-2 flex-shrink-0" />
                 {error}
               </div>
             )}
 
             {message && (
-              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700">
+              <div className="mb-3 p-2.5 bg-green-50 border border-green-200 rounded-lg text-green-700 text-xs flex items-center animate-slide-up">
+                <CheckCircle2 className="w-3.5 h-3.5 mr-2 flex-shrink-0" />
                 {message}
               </div>
             )}
@@ -286,107 +260,112 @@ function Settings({ user }: SettingsProps) {
             <div className="space-y-4">
               {/* Provider Selection */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
                   AI 提供商
                 </label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-2">
                   {AI_PROVIDERS.map((p) => (
                     <button
                       key={p.id}
                       onClick={() => handleProviderChange(p.id as any)}
-                      className={`p-3 rounded-lg border-2 text-center transition-colors ${
+                      className={`p-1.5 rounded-lg border-2 text-center transition-all ${
                         provider === p.id
-                          ? 'border-primary-500 bg-primary-50'
-                          : 'border-gray-200 hover:border-gray-300'
+                          ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-200'
+                          : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'
                       }`}
                     >
-                      <div className="font-medium text-gray-900">{p.name}</div>
+                      <div className="text-xs font-medium text-gray-900">{p.name}</div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* API Key */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <div className="flex items-center">
-                    <Key className="w-4 h-4 mr-1" />
-                    API Key
-                  </div>
-                </label>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  className="input-field"
-                  placeholder={`输入你的 ${AI_PROVIDERS.find(p => p.id === provider)?.name} API Key`}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  你的 API Key 将被安全地存储在本地
-                </p>
-              </div>
-
-              {/* API URL (for custom provider) */}
-              {provider === 'custom' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* API Key */}
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
                     <div className="flex items-center">
-                      <Globe className="w-4 h-4 mr-1" />
-                      API URL
+                      <Key className="w-3 h-3 mr-1 text-gray-400" />
+                      API Key
                     </div>
                   </label>
                   <input
-                    type="text"
-                    value={apiUrl}
-                    onChange={(e) => setApiUrl(e.target.value)}
-                    className="input-field"
-                    placeholder="https://api.example.com/v1/chat"
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    className="input-field text-sm !py-1.5"
+                    placeholder={provider === 'ollama' ? 'Ollama 不需要 API Key' : '输入你的 API Key'}
+                    disabled={provider === 'ollama'}
                   />
                 </div>
-              )}
+
+                {/* API URL */}
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    <div className="flex items-center">
+                      <Globe className="w-3 h-3 mr-1 text-gray-400" />
+                      API URL
+                    </div>
+                  </label>
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      value={apiUrl}
+                      onChange={(e) => setApiUrl(e.target.value)}
+                      className="input-field text-sm !py-1.5 flex-1"
+                      placeholder="API 地址"
+                    />
+                    <button
+                      onClick={handleTestConnection}
+                      disabled={testing}
+                      className="px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors disabled:opacity-50 flex items-center"
+                    >
+                      {testing ? <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mr-1" /> : <Search className="w-3 h-3 mr-1" />}
+                      测试
+                    </button>
+                  </div>
+                </div>
+              </div>
 
               {/* Model */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  模型
-                </label>
-                <input
-                  type="text"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="input-field"
-                  placeholder={AI_PROVIDERS.find(p => p.id === provider)?.defaultModel || '模型名称'}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  可选，留空将使用默认模型
+                <label className="block text-xs font-medium text-gray-700 mb-1">模型名称</label>
+                {availableModels.length > 0 ? (
+                  <div className="relative">
+                    <select
+                      value={model}
+                      onChange={(e) => setModel(e.target.value)}
+                      className="input-field text-sm !py-1.5 appearance-none"
+                    >
+                      <option value="">请选择模型...</option>
+                      {availableModels.map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-400">
+                      <Search className="w-3 h-3" />
+                    </div>
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    className="input-field text-sm !py-1.5"
+                    placeholder="例如: gpt-3.5-turbo 或自定义模型 ID"
+                  />
+                )}
+                <p className="text-[10px] text-gray-500 mt-1">
+                  {availableModels.length > 0 ? '建议从已加载的列表中选择' : '点击“测试”可自动获取可用模型列表'}
                 </p>
               </div>
-
-              {/* Save Button */}
-              <button
-                onClick={handleSave}
-                disabled={loading}
-                className="w-full btn-primary flex items-center justify-center"
-              >
-                {loading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                    保存中...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4 mr-2" />
-                    保存设置
-                  </>
-                )}
-              </button>
             </div>
           </div>
 
           {/* About Card */}
-          <div className="card">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">关于 Grainmap</h2>
-            <div className="text-sm text-gray-600 space-y-2">
+          <div className="card !p-4">
+            <h2 className="text-sm font-semibold text-gray-900 mb-2">关于 Grainmap</h2>
+            <div className="text-[11px] text-gray-600 space-y-1">
               <p>版本：1.0.0</p>
               <p>Grainmap 是一个照片地图应用，让你可以在地图上标记和记录你的照片故事。</p>
               <p>所有数据都存储在本地，保护你的隐私。</p>

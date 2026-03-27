@@ -6,6 +6,17 @@ import fs from 'fs'
 import crypto from 'crypto'
 import archiver from 'archiver'
 import extract from 'extract-zip'
+import exifr from 'exifr'
+import * as piexif from 'piexifjs'
+
+// Helper function to convert decimal degrees to GPS rational for piexif
+const degToRational = (deg: number) => {
+  const absolute = Math.abs(deg)
+  const d = Math.floor(absolute)
+  const m = Math.floor((absolute - d) * 60)
+  const s = Math.round((absolute - d - (m / 60)) * 3600 * 100)
+  return [[d, 1], [m, 1], [s, 100]]
+}
 
 let store: any
 let db: Database
@@ -120,6 +131,64 @@ app.whenReady().then(async () => {
     return db.getAIConfig(userId)
   })
 
+  // AI Connection Test
+  ipcMain.handle('ai:testConnection', async (_, config: any) => {
+    const { provider, apiKey, apiUrl } = config
+    let url = apiUrl || ''
+
+    try {
+      if (provider === 'claude') {
+        // Claude typically doesn't have a simple public models list API like OpenAI
+        return {
+          success: true,
+          models: ['claude-3-5-sonnet-20240620', 'claude-3-opus-20240229', 'claude-3-haiku-20240307']
+        }
+      }
+
+      let fetchUrl = url
+      if (provider === 'ollama') {
+        // Ollama tags endpoint
+        fetchUrl = url.replace(/\/api\/chat$/, '').replace(/\/$/, '') + '/api/tags'
+      } else {
+        // OpenAI compatible /v1/models
+        if (!fetchUrl.endsWith('/models')) {
+          fetchUrl = fetchUrl.replace(/\/chat\/completions$/, '').replace(/\/v1\/chat\/completions$/, '').replace(/\/$/, '')
+          if (!fetchUrl.endsWith('/v1')) fetchUrl += '/v1'
+          fetchUrl += '/models'
+        }
+      }
+
+      const headers: Record<string, string> = {
+        'Accept': 'application/json',
+      }
+
+      if (apiKey && provider !== 'ollama') {
+        headers['Authorization'] = `Bearer ${apiKey}`
+      }
+
+      const response = await net.fetch(fetchUrl, { headers })
+
+      if (!response.ok) {
+        throw new Error(`连接失败: ${response.status} ${response.statusText}`)
+      }
+
+      const data: any = await response.json()
+      let models: string[] = []
+
+      if (provider === 'ollama') {
+        models = data.models?.map((m: any) => m.name) || []
+      } else {
+        // OpenAI format
+        models = data.data?.map((m: any) => m.id) || []
+      }
+
+      return { success: true, models }
+    } catch (error: any) {
+      console.error('AI Connection Test Error:', error)
+      return { success: false, error: error.message || '未知错误' }
+    }
+  })
+
   // File operations
   ipcMain.handle('file:selectImage', async () => {
     const result = await dialog.showOpenDialog({
@@ -138,10 +207,28 @@ app.whenReady().then(async () => {
                        ext === '.gif' ? 'image/gif' :
                        ext === '.webp' ? 'image/webp' : 'image/jpeg'
 
+      // Try to extract EXIF data
+      let exifData = null
+      try {
+        if (ext === '.jpg' || ext === '.jpeg') {
+          exifData = await exifr.parse(buffer, {
+            gps: true,
+            tiff: true,
+          })
+        }
+      } catch (err) {
+        console.error('EXIF extraction error:', err)
+      }
+
       return {
         path: filePath,
         data: `data:${mimeType};base64,${base64}`,
         name: path.basename(filePath),
+        exif: exifData ? {
+          latitude: exifData.latitude,
+          longitude: exifData.longitude,
+          dateTime: exifData.DateTimeOriginal || exifData.CreateDate || null,
+        } : null,
       }
     }
     return null
@@ -213,7 +300,42 @@ app.whenReady().then(async () => {
 
           if (fs.existsSync(photoPath)) {
             const fileName = path.basename(photoPath)
-            archive.file(photoPath, { name: `photos/${fileName}` })
+            const ext = path.extname(photoPath).toLowerCase()
+
+            // For JPEGs, inject EXIF data
+            if (ext === '.jpg' || ext === '.jpeg') {
+              try {
+                const imageBuffer = fs.readFileSync(photoPath)
+                const imageBase64 = imageBuffer.toString('base64')
+                const jpegData = `data:image/jpeg;base64,${imageBase64}`
+
+                const gps: any = {}
+                gps[piexif.GPSIFD.GPSLatitudeRef] = photo.latitude >= 0 ? 'N' : 'S'
+                gps[piexif.GPSIFD.GPSLatitude] = degToRational(photo.latitude)
+                gps[piexif.GPSIFD.GPSLongitudeRef] = photo.longitude >= 0 ? 'E' : 'W'
+                gps[piexif.GPSIFD.GPSLongitude] = degToRational(photo.longitude)
+
+                const zeroth: any = {}
+                // Add original date if available
+                if (photo.createdAt) {
+                  const date = new Date(photo.createdAt)
+                  const dateStr = date.toISOString().replace(/T/, ' ').replace(/\..+/, '').replace(/-/g, ':')
+                  zeroth[piexif.ImageIFD.DateTime] = dateStr
+                }
+
+                const exifObj = { '0th': zeroth, 'GPS': gps }
+                const exifBytes = piexif.dump(exifObj)
+                const newJpegData = piexif.insert(exifBytes, jpegData)
+                const newBuffer = Buffer.from(newJpegData.split(',')[1], 'base64')
+
+                archive.append(newBuffer, { name: `photos/${fileName}` })
+              } catch (err) {
+                console.error(`Error injecting EXIF for ${fileName}:`, err)
+                archive.file(photoPath, { name: `photos/${fileName}` })
+              }
+            } else {
+              archive.file(photoPath, { name: `photos/${fileName}` })
+            }
           }
         }
       }

@@ -12,6 +12,7 @@ const api = {
     deletePhoto: (id: string) => ipcRenderer.invoke('db:deletePhoto', id),
     saveAIConfig: (userId: string, config: any) => ipcRenderer.invoke('db:saveAIConfig', userId, config),
     getAIConfig: (userId: string) => ipcRenderer.invoke('db:getAIConfig', userId),
+    testAIConnection: (config: any) => ipcRenderer.invoke('ai:testConnection', config),
   },
   file: {
     selectImage: () => ipcRenderer.invoke('file:selectImage'),

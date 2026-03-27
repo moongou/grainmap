@@ -42,7 +42,40 @@ class AppDatabase {
   init(): void {
     const dbPath = path.join(app.getPath('userData'), 'grainmap.db')
     this.db = new Database(dbPath)
+    this.db.exec('PRAGMA foreign_keys = ON;')
     this.createTables()
+    this.ensureSuperuser()
+  }
+
+  private ensureSuperuser(): void {
+    if (!this.db) return
+
+    const username = 'rainforgrain'
+    const id = 'superuser-id'
+    const now = new Date().toISOString()
+
+    // 检查是否存在
+    const existing = this.db.prepare('SELECT id, username FROM users WHERE username = ? OR id = ?').get(username, id) as any
+
+    if (!existing) {
+      // 没有任何冲突，直接插入
+      this.db.prepare(`
+        INSERT INTO users (id, username, password, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(id, username, '', now, now)
+      console.log('Superuser created with ID:', id)
+    } else if (existing.id !== id) {
+      // 用户存在但 ID 不对 (可能是之前注册的)，为了确保 shortcut 工作正常，我们统一更新 ID
+      console.log('Superuser exists but with different ID. Updating ID to canonical one.')
+      this.db.transaction(() => {
+        if (!this.db) return
+        this.db.prepare('PRAGMA foreign_keys = OFF;').run()
+        this.db.prepare('UPDATE users SET id = ? WHERE username = ?').run(id, username)
+        this.db.prepare('UPDATE photos SET user_id = ? WHERE user_id = ?').run(id, existing.id)
+        this.db.prepare('UPDATE ai_configs SET user_id = ? WHERE user_id = ?').run(id, existing.id)
+        this.db.prepare('PRAGMA foreign_keys = ON;').run()
+      })()
+    }
   }
 
   private createTables(): void {
