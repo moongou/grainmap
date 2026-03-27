@@ -18,6 +18,11 @@ const GENERATION_STYLES = [
 
 function AIGenerateModal({ userId, photoTitle, photoDescription, onClose, onGenerate }: AIGenerateModalProps) {
   const [style, setStyle] = useState('poem');
+
+  if (!window.electronAPI) {
+    return <div className="p-10 text-center text-red-600">错误：环境不可用</div>;
+  }
+
   const [customPrompt, setCustomPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [generatedText, setGeneratedText] = useState('');

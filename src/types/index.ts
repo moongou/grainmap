@@ -9,6 +9,7 @@ export interface User {
 export interface Photo {
   id: string;
   userId: string;
+  albumId?: string | null;
   title: string;
   description: string;
   imagePath: string;
@@ -17,6 +18,15 @@ export interface Photo {
   longitude: number;
   address: string;
   aiGeneratedText: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Album {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string;
   createdAt: string;
   updatedAt: string;
 }

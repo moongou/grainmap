@@ -16,12 +16,24 @@ const AI_PROVIDERS = [
 ];
 
 const MAP_PROVIDERS = [
-  { id: 'tianditu', name: '天地图', needsKey: true, needsSecurity: false },
   { id: 'baidu', name: '百度地图', needsKey: false, needsSecurity: false },
+  { id: 'tianditu', name: '天地图', needsKey: true, needsSecurity: false },
 ];
 
 function Settings({ user }: SettingsProps) {
   const navigate = useNavigate();
+
+  if (!window.electronAPI) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-10 bg-gray-50 text-gray-500">
+        <AlertCircle className="w-12 h-12 mb-4 text-red-500" />
+        <h2 className="text-xl font-bold text-gray-900 mb-2">环境错误</h2>
+        <p>未检测到 Electron 接口。请确保在应用内运行。</p>
+        <button onClick={() => navigate('/map')} className="mt-4 text-primary-600 hover:underline">返回</button>
+      </div>
+    );
+  }
+
   const [, setAiConfig] = useState<AIConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -36,7 +48,7 @@ function Settings({ user }: SettingsProps) {
   const [availableModels, setAvailableModels] = useState<string[]>([]);
 
   // Map state
-  const [mapProvider, setMapProvider] = useState<'tianditu' | 'baidu'>('tianditu');
+  const [mapProvider, setMapProvider] = useState<'tianditu' | 'baidu'>('baidu');
   const [tiandituKey, setTiandituKey] = useState('');
 
   useEffect(() => {

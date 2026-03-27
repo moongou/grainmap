@@ -10,8 +10,14 @@ declare global {
         validateUser: (username: string, password: string) => Promise<any>;
         createPhoto: (photo: any) => Promise<any>;
         getPhotosByUser: (userId: string) => Promise<any[]>;
+        getPhotosByAlbum: (albumId: string) => Promise<any[]>;
         updatePhoto: (id: string, photo: any) => Promise<any>;
         deletePhoto: (id: string) => Promise<boolean>;
+        getAlbumsByUser: (userId: string) => Promise<any[]>;
+        createAlbum: (userId: string, album: any) => Promise<any>;
+        updateAlbum: (id: string, album: any) => Promise<any>;
+        deleteAlbum: (id: string) => Promise<boolean>;
+        movePhotosToAlbum: (photoIds: string[], albumId: string | null) => Promise<boolean>;
         saveAIConfig: (userId: string, config: any) => Promise<any>;
         getAIConfig: (userId: string) => Promise<any>;
         testAIConnection: (config: any) => Promise<{ success: boolean; models?: string[]; error?: string }>;

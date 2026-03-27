@@ -46,7 +46,7 @@ const createWindow = () => {
   const isDev = process.env.VITE_DEV_SERVER_URL || !app.isPackaged
 
   if (isDev) {
-    const url = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173'
+    const url = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5174'
     mainWindow.loadURL(url)
     mainWindow.webContents.openDevTools()
   } else {
@@ -115,12 +115,37 @@ app.whenReady().then(async () => {
     return db.getPhotosByUser(userId)
   })
 
+  ipcMain.handle('db:getPhotosByAlbum', async (_, albumId: string) => {
+    return db.getPhotosByAlbum(albumId)
+  })
+
   ipcMain.handle('db:updatePhoto', async (_, id: string, photo: any) => {
     return db.updatePhoto(id, photo)
   })
 
   ipcMain.handle('db:deletePhoto', async (_, id: string) => {
     return db.deletePhoto(id)
+  })
+
+  // Album IPC handlers
+  ipcMain.handle('db:getAlbumsByUser', async (_, userId: string) => {
+    return db.getAlbumsByUser(userId)
+  })
+
+  ipcMain.handle('db:createAlbum', async (_, userId: string, album: any) => {
+    return db.createAlbum(userId, album)
+  })
+
+  ipcMain.handle('db:updateAlbum', async (_, id: string, album: any) => {
+    return db.updateAlbum(id, album)
+  })
+
+  ipcMain.handle('db:deleteAlbum', async (_, id: string) => {
+    return db.deleteAlbum(id)
+  })
+
+  ipcMain.handle('db:movePhotosToAlbum', async (_, photoIds: string[], albumId: string | null) => {
+    return db.movePhotosToAlbum(photoIds, albumId)
   })
 
   ipcMain.handle('db:saveAIConfig', async (_, userId: string, config: any) => {
@@ -192,44 +217,49 @@ app.whenReady().then(async () => {
   // File operations
   ipcMain.handle('file:selectImage', async () => {
     const result = await dialog.showOpenDialog({
-      properties: ['openFile'],
+      properties: ['openFile', 'multiSelections'],
       filters: [
         { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] },
       ],
     })
 
     if (!result.canceled && result.filePaths.length > 0) {
-      const filePath = result.filePaths[0]
-      const buffer = fs.readFileSync(filePath)
-      const base64 = buffer.toString('base64')
-      const ext = path.extname(filePath).toLowerCase()
-      const mimeType = ext === '.png' ? 'image/png' :
-                       ext === '.gif' ? 'image/gif' :
-                       ext === '.webp' ? 'image/webp' : 'image/jpeg'
+      const photos = []
 
-      // Try to extract EXIF data
-      let exifData = null
-      try {
-        if (ext === '.jpg' || ext === '.jpeg') {
-          exifData = await exifr.parse(buffer, {
-            gps: true,
-            tiff: true,
-          })
+      for (const filePath of result.filePaths) {
+        const buffer = fs.readFileSync(filePath)
+        const base64 = buffer.toString('base64')
+        const ext = path.extname(filePath).toLowerCase()
+        const mimeType = ext === '.png' ? 'image/png' :
+                         ext === '.gif' ? 'image/gif' :
+                         ext === '.webp' ? 'image/webp' : 'image/jpeg'
+
+        // Try to extract EXIF data
+        let exifData = null
+        try {
+          if (ext === '.jpg' || ext === '.jpeg') {
+            exifData = await exifr.parse(buffer, {
+              gps: true,
+              tiff: true,
+            })
+          }
+        } catch (err) {
+          console.error('EXIF extraction error:', err)
         }
-      } catch (err) {
-        console.error('EXIF extraction error:', err)
+
+        photos.push({
+          path: filePath,
+          data: `data:${mimeType};base64,${base64}`,
+          name: path.basename(filePath),
+          exif: exifData ? {
+            latitude: exifData.latitude,
+            longitude: exifData.longitude,
+            dateTime: exifData.DateTimeOriginal || exifData.CreateDate || null,
+          } : null,
+        })
       }
 
-      return {
-        path: filePath,
-        data: `data:${mimeType};base64,${base64}`,
-        name: path.basename(filePath),
-        exif: exifData ? {
-          latitude: exifData.latitude,
-          longitude: exifData.longitude,
-          dateTime: exifData.DateTimeOriginal || exifData.CreateDate || null,
-        } : null,
-      }
+      return photos
     }
     return null
   })

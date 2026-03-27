@@ -7,7 +7,7 @@
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "concurrently \"vite\" \"npm run build:electron && wait-on http://localhost:5173 && electron .\"",
+    "dev": "concurrently \"vite --port 5174\" \"npm run build:electron && wait-on http://localhost:5174 && electron .\"",
     "build": "tsc && vite build",
     "build:electron": "tsc -p electron/tsconfig.json && echo '{\"type\":\"commonjs\"}' > dist-electron/package.json",
     "preview": "vite preview",

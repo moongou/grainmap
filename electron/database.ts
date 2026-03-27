@@ -14,6 +14,7 @@ export interface User {
 export interface Photo {
   id: string
   userId: string
+  albumId: string | null
   title: string
   description: string
   imagePath: string
@@ -21,6 +22,15 @@ export interface Photo {
   longitude: number
   address: string
   aiGeneratedText: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Album {
+  id: string
+  userId: string
+  name: string
+  description: string | null
   createdAt: string
   updatedAt: string
 }
@@ -97,6 +107,7 @@ class AppDatabase {
       CREATE TABLE IF NOT EXISTS photos (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
+        album_id TEXT,
         title TEXT,
         description TEXT,
         image_path TEXT NOT NULL,
@@ -104,6 +115,31 @@ class AppDatabase {
         longitude REAL NOT NULL,
         address TEXT,
         ai_generated_text TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `)
+
+    // Migration for existing photos table: add album_id column if it doesn't exist
+    const photoTableInfo = this.db.prepare("PRAGMA table_info(photos)").all() as any[]
+    const hasAlbumId = photoTableInfo.some(col => col.name === 'album_id')
+    if (!hasAlbumId) {
+      try {
+        this.db.exec('ALTER TABLE photos ADD COLUMN album_id TEXT')
+        console.log('Added album_id column to photos table')
+      } catch (err) {
+        console.error('Migration error: could not add album_id column', err)
+      }
+    }
+
+    // Albums table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS albums (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -127,7 +163,9 @@ class AppDatabase {
 
     // Create indexes
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_photos_user_id ON photos(user_id)`)
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_photos_album_id ON photos(album_id)`)
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_photos_location ON photos(latitude, longitude)`)
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_albums_user_id ON albums(user_id)`)
   }
 
   // User operations
@@ -195,13 +233,14 @@ class AppDatabase {
     const now = new Date().toISOString()
 
     const stmt = this.db.prepare(`
-      INSERT INTO photos (id, user_id, title, description, image_path, latitude, longitude, address, ai_generated_text, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO photos (id, user_id, album_id, title, description, image_path, latitude, longitude, address, ai_generated_text, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     stmt.run(
       id,
       photo.userId,
+      photo.albumId || null,
       photo.title || null,
       photo.description || null,
       photo.imagePath,
@@ -216,6 +255,7 @@ class AppDatabase {
     return {
       id,
       userId: photo.userId,
+      albumId: photo.albumId || null,
       title: photo.title,
       description: photo.description,
       imagePath: photo.imagePath,
@@ -237,6 +277,29 @@ class AppDatabase {
     return rows.map(row => ({
       id: row.id,
       userId: row.user_id,
+      albumId: row.album_id || null,
+      title: row.title,
+      description: row.description,
+      imagePath: row.image_path,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      address: row.address,
+      aiGeneratedText: row.ai_generated_text,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }))
+  }
+
+  getPhotosByAlbum(albumId: string): Photo[] {
+    if (!this.db) return []
+
+    const stmt = this.db.prepare('SELECT * FROM photos WHERE album_id = ? ORDER BY created_at DESC')
+    const rows = stmt.all(albumId) as any[]
+
+    return rows.map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      albumId: row.album_id || null,
       title: row.title,
       description: row.description,
       imagePath: row.image_path,
@@ -256,6 +319,10 @@ class AppDatabase {
     const updates: string[] = []
     const values: any[] = []
 
+    if (photo.albumId !== undefined) {
+      updates.push('album_id = ?')
+      values.push(photo.albumId)
+    }
     if (photo.title !== undefined) {
       updates.push('title = ?')
       values.push(photo.title)
@@ -328,6 +395,118 @@ class AppDatabase {
     const result = stmt.run(id)
 
     return result.changes > 0
+  }
+
+  // Album operations
+  createAlbum(userId: string, album: { name: string, description?: string }): Album {
+    if (!this.db) throw new Error('Database not initialized')
+
+    const id = crypto.randomUUID()
+    const now = new Date().toISOString()
+
+    const stmt = this.db.prepare(`
+      INSERT INTO albums (id, user_id, name, description, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `)
+
+    stmt.run(id, userId, album.name, album.description || null, now, now)
+
+    return {
+      id,
+      userId,
+      name: album.name,
+      description: album.description || null,
+      createdAt: now,
+      updatedAt: now,
+    }
+  }
+
+  getAlbumsByUser(userId: string): Album[] {
+    if (!this.db) return []
+
+    const stmt = this.db.prepare('SELECT * FROM albums WHERE user_id = ? ORDER BY name ASC')
+    const rows = stmt.all(userId) as any[]
+
+    return rows.map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      name: row.name,
+      description: row.description,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }))
+  }
+
+  updateAlbum(id: string, album: Partial<Album>): Album | null {
+    if (!this.db) return null
+
+    const now = new Date().toISOString()
+    const updates: string[] = []
+    const values: any[] = []
+
+    if (album.name !== undefined) {
+      updates.push('name = ?')
+      values.push(album.name)
+    }
+    if (album.description !== undefined) {
+      updates.push('description = ?')
+      values.push(album.description)
+    }
+
+    updates.push('updated_at = ?')
+    values.push(now)
+    values.push(id)
+
+    const stmt = this.db.prepare(`
+      UPDATE albums SET ${updates.join(', ')} WHERE id = ?
+    `)
+
+    stmt.run(...values)
+
+    return this.getAlbumById(id)
+  }
+
+  getAlbumById(id: string): Album | null {
+    if (!this.db) return null
+
+    const stmt = this.db.prepare('SELECT * FROM albums WHERE id = ?')
+    const row = stmt.get(id) as any
+
+    if (!row) return null
+
+    return {
+      id: row.id,
+      userId: row.user_id,
+      name: row.name,
+      description: row.description,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+  }
+
+  deleteAlbum(id: string): boolean {
+    if (!this.db) return false
+
+    const stmt = this.db.prepare('DELETE FROM albums WHERE id = ?')
+    const result = stmt.run(id)
+
+    return result.changes > 0
+  }
+
+  movePhotosToAlbum(photoIds: string[], albumId: string | null): boolean {
+    if (!this.db) return false
+
+    const now = new Date().toISOString()
+    const stmt = this.db.prepare('UPDATE photos SET album_id = ?, updated_at = ? WHERE id = ?')
+
+    const transaction = this.db.transaction((ids: string[], aId: string | null) => {
+      for (const id of ids) {
+        stmt.run(aId, now, id)
+      }
+    })
+
+    transaction(photoIds, albumId)
+    return true
   }
 
   // AI Config operations

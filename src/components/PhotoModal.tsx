@@ -1,16 +1,18 @@
-import { X, Edit3, Trash2, MapPin, Sparkles, Calendar, Maximize2, Minimize2 } from 'lucide-react';
-import { Photo } from '../types';
+import { X, Edit3, Trash2, MapPin, Sparkles, Calendar, Maximize2, Minimize2, Folder } from 'lucide-react';
+import { Photo, Album } from '../types';
 import { useState } from 'react';
 
 interface PhotoModalProps {
   photo: Photo;
+  albums: Album[];
   onClose: () => void;
   onEdit: () => void;
   onEditLocation: () => void;
   onDelete: () => void;
+  onMoveToAlbum: (albumId: string | null) => void;
 }
 
-function PhotoModal({ photo, onClose, onEdit, onEditLocation, onDelete }: PhotoModalProps) {
+function PhotoModal({ photo, albums, onClose, onEdit, onEditLocation, onDelete, onMoveToAlbum }: PhotoModalProps) {
   const [isFullScreen, setIsFullScreen] = useState(false);
 
   if (isFullScreen) {
@@ -82,6 +84,10 @@ function PhotoModal({ photo, onClose, onEdit, onEditLocation, onDelete }: PhotoM
                     {photo.address}
                   </span>
                 )}
+                <span className="flex items-center bg-gray-50 px-2.5 py-1 rounded-full border border-gray-100">
+                  <Folder className="w-3.5 h-3.5 mr-1.5 text-orange-500" />
+                  {albums.find(a => a.id === photo.albumId)?.name || '未分类'}
+                </span>
               </div>
             </div>
             <div className="flex items-center space-x-2 shrink-0">
@@ -130,6 +136,29 @@ function PhotoModal({ photo, onClose, onEdit, onEditLocation, onDelete }: PhotoM
             </div>
 
             <div className="space-y-6">
+              {/* 相册管理 */}
+              <div className="bg-gray-50/80 rounded-2xl p-5 border border-gray-100 backdrop-blur-sm">
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center">
+                  <Folder className="w-3 h-3 mr-1.5" />
+                  所属相册
+                </h3>
+                <div className="relative">
+                  <select
+                    value={photo.albumId || ''}
+                    onChange={(e) => onMoveToAlbum(e.target.value || null)}
+                    className="w-full bg-white border border-gray-200 text-sm rounded-xl px-3 py-2 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-200 transition-all appearance-none cursor-pointer"
+                  >
+                    <option value="">未分类 (默认)</option>
+                    {albums.map(album => (
+                      <option key={album.id} value={album.id}>{album.name}</option>
+                    ))}
+                  </select>
+                  <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-gray-400">
+                    <Maximize2 className="w-3 h-3 rotate-45" />
+                  </div>
+                </div>
+              </div>
+
               {/* 坐标信息 */}
               <div className="bg-gray-50/80 rounded-2xl p-5 border border-gray-100 backdrop-blur-sm">
                 <div className="flex items-center justify-between mb-3">
