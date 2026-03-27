@@ -10,6 +10,8 @@ interface SettingsProps {
 const AI_PROVIDERS = [
   { id: 'openai', name: 'OpenAI', defaultUrl: 'https://api.openai.com/v1/chat/completions', defaultModel: 'gpt-3.5-turbo' },
   { id: 'claude', name: 'Claude (Anthropic)', defaultUrl: 'https://api.anthropic.com/v1/messages', defaultModel: 'claude-3-haiku-20240307' },
+  { id: 'ollama', name: 'Ollama (本地)', defaultUrl: 'http://localhost:11434/api/chat', defaultModel: 'llama3' },
+  { id: 'volcano', name: '火山大模型 (Ark)', defaultUrl: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions', defaultModel: 'ep-xxx' },
   { id: 'custom', name: '自定义 API', defaultUrl: '', defaultModel: '' },
 ];
 
@@ -21,7 +23,7 @@ function Settings({ user }: SettingsProps) {
   const [error, setError] = useState('');
 
   // Form state
-  const [provider, setProvider] = useState<'openai' | 'claude' | 'custom'>('openai');
+  const [provider, setProvider] = useState<'openai' | 'claude' | 'ollama' | 'volcano' | 'custom'>('openai');
   const [apiKey, setApiKey] = useState('');
   const [apiUrl, setApiUrl] = useState('');
   const [model, setModel] = useState('');

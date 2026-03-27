@@ -11,6 +11,7 @@ function Register({ onRegister }: RegisterProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [amapApiKey, setAmapApiKey] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -44,6 +45,11 @@ function Register({ onRegister }: RegisterProps) {
         username,
         password,
       });
+
+      // Store AMap Key if provided
+      if (amapApiKey) {
+        await window.electronAPI.store.set('amapApiKey', amapApiKey);
+      }
 
       onRegister(user);
     } catch (err) {
@@ -106,6 +112,20 @@ function Register({ onRegister }: RegisterProps) {
               placeholder="请再次输入密码"
               required
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              高德地图 API Key (可选)
+            </label>
+            <input
+              type="text"
+              value={amapApiKey}
+              onChange={(e) => setAmapApiKey(e.target.value)}
+              className="input-field"
+              placeholder="请输入高德地图 API Key"
+            />
+            <p className="text-xs text-gray-500 mt-1">此 Key 将用于加载地图基础功能</p>
           </div>
 
           {error && (

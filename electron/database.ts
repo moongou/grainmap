@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import path from 'path'
 import { app } from 'electron'
-import { v4 as uuidv4 } from 'uuid'
+import crypto from 'crypto'
 
 export interface User {
   id: string
@@ -101,7 +101,7 @@ class AppDatabase {
   createUser(user: Omit<User, 'id' | 'createdAt' | 'updatedAt'>): User {
     if (!this.db) throw new Error('Database not initialized')
 
-    const id = uuidv4()
+    const id = crypto.randomUUID()
     const now = new Date().toISOString()
 
     const stmt = this.db.prepare(`
@@ -158,7 +158,7 @@ class AppDatabase {
   createPhoto(photo: Omit<Photo, 'id' | 'createdAt' | 'updatedAt'>): Photo {
     if (!this.db) throw new Error('Database not initialized')
 
-    const id = uuidv4()
+    const id = crypto.randomUUID()
     const now = new Date().toISOString()
 
     const stmt = this.db.prepare(`
@@ -321,7 +321,7 @@ class AppDatabase {
         updatedAt: now,
       }
     } else {
-      const id = uuidv4()
+      const id = crypto.randomUUID()
       const stmt = this.db.prepare(`
         INSERT INTO ai_configs (id, user_id, provider, api_key, api_url, model, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)

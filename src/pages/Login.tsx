@@ -10,6 +10,7 @@ interface LoginProps {
 function Login({ onLogin }: LoginProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [amapApiKey, setAmapApiKey] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -21,6 +22,10 @@ function Login({ onLogin }: LoginProps) {
     try {
       const user = await window.electronAPI.db.validateUser(username, password);
       if (user) {
+        // Store AMap Key if provided
+        if (amapApiKey) {
+          await window.electronAPI.store.set('amapApiKey', amapApiKey);
+        }
         onLogin(user);
       } else {
         setError('用户名或密码错误');
@@ -71,6 +76,20 @@ function Login({ onLogin }: LoginProps) {
               placeholder="请输入密码"
               required
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              高德地图 API Key (可选)
+            </label>
+            <input
+              type="text"
+              value={amapApiKey}
+              onChange={(e) => setAmapApiKey(e.target.value)}
+              className="input-field"
+              placeholder="请输入高德地图 API Key"
+            />
+            <p className="text-xs text-gray-500 mt-1">如果已在设置中配置，可留空</p>
           </div>
 
           {error && (

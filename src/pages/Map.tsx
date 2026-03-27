@@ -11,8 +11,8 @@ interface MapProps {
   onLogout: () => void;
 }
 
-// 海南省中心位置
-const HAINAN_CENTER = [109.5, 19.0];
+// 海南省中心位置，使整个海南省居中
+const HAINAN_CENTER = [109.73, 19.03];
 
 function Map({ user, onLogout }: MapProps) {
   const navigate = useNavigate();
@@ -47,18 +47,27 @@ function Map({ user, onLogout }: MapProps) {
         const AMap = await AMapLoader.load({
           key: amapApiKey || 'YOUR_AMAP_KEY', // 如果没有配置，使用默认值
           version: '2.0',
-          plugins: ['AMap.ToolBar', 'AMap.Scale', 'AMap.Geocoder'],
+          plugins: ['AMap.ToolBar', 'AMap.Scale', 'AMap.Geocoder', 'AMap.ControlBar'],
         });
 
         if (mapContainerRef.current) {
           const map = new AMap.Map(mapContainerRef.current, {
-            zoom: 9,
+            zoom: 7.8, // 适合看到整个海南省
             center: HAINAN_CENTER,
-            viewMode: '2D',
+            viewMode: '3D', // 使用 3D 模式以获得更现代的感觉
           });
 
           map.addControl(new AMap.ToolBar());
           map.addControl(new AMap.Scale());
+
+          // 添加 3D 控制罗盘
+          const controlBar = new (window as any).AMap.ControlBar({
+            position: {
+              right: '10px',
+              top: '10px'
+            }
+          });
+          map.addControl(controlBar);
 
           // 点击地图获取位置
           map.on('click', (e: any) => {
@@ -124,6 +133,11 @@ function Map({ user, onLogout }: MapProps) {
 
         marker.on('click', () => {
           setSelectedPhoto(photo);
+          // 优雅地定位到地图位置并放大
+          if (mapRef.current) {
+            mapRef.current.setCenter([photo.longitude, photo.latitude]);
+            mapRef.current.setZoom(15, false, 500); // 平滑缩放到 15 级
+          }
         });
 
         mapRef.current.add(marker);
@@ -178,11 +192,11 @@ function Map({ user, onLogout }: MapProps) {
         userId: user.id,
         title: newPhoto.title || selectedImageName,
         description: newPhoto.description || '',
-        imagePath: savedImage.path,
-        latitude: newPhoto.latitude || HAINAN_CENTER[1],
-        longitude: newPhoto.longitude || HAINAN_CENTER[0],
+        imagePath: savedImage.path, // main.ts already returns app-data:// path
+        latitude: newPhoto.latitude || 19.03,
+        longitude: newPhoto.longitude || 109.73,
         address: newPhoto.address || '',
-        aiGeneratedText: '',
+        aiGeneratedText: newPhoto.aiGeneratedText || '',
       });
 
       setPhotos(prev => [photo, ...prev]);
@@ -258,12 +272,14 @@ function Map({ user, onLogout }: MapProps) {
       const data = await window.electronAPI.file.importData();
       if (data && data.photos) {
         setLoading(true);
-        
+
         // 导入照片
         const importedPhotos = [];
         for (const photo of data.photos) {
-          // 检查照片是否已存在
-          const existing = photos.find(p => p.imagePath === photo.imagePath);
+          // 检查照片是否已存在 (基于 imagePath 的文件名或经纬度+标题)
+          const fileName = photo.imagePath.split('/').pop();
+          const existing = photos.find(p => p.imagePath.endsWith(fileName) || (p.latitude === photo.latitude && p.longitude === photo.longitude && p.title === photo.title));
+
           if (!existing) {
             // 创建照片记录
             const newPhoto = await window.electronAPI.db.createPhoto({
@@ -279,7 +295,7 @@ function Map({ user, onLogout }: MapProps) {
             importedPhotos.push(newPhoto);
           }
         }
-        
+
         if (importedPhotos.length > 0) {
           // 重新加载照片
           await loadPhotos();
@@ -290,7 +306,7 @@ function Map({ user, onLogout }: MapProps) {
       }
     } catch (error) {
       console.error('Error importing data:', error);
-      alert('导入数据失败');
+      alert('导入数据失败，请检查文件格式');
     } finally {
       setLoading(false);
     }
@@ -389,10 +405,10 @@ function Map({ user, onLogout }: MapProps) {
                 className="group bg-gray-50 rounded-lg p-3 cursor-pointer hover:bg-gray-100 transition-colors"
                 onClick={() => {
                   setSelectedPhoto(photo);
-                  // 地图定位到照片位置
+                  // 地图定位到照片位置并优雅缩放
                   if (mapRef.current) {
-                    mapRef.current.setCenter([photo.longitude, photo.latitude]);
-                    mapRef.current.setZoom(15);
+                    mapRef.current.setCenter([photo.longitude, photo.latitude], false, 500);
+                    mapRef.current.setZoom(15, false, 500);
                   }
                 }}
               >

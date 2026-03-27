@@ -58,10 +58,12 @@ function AIGenerateModal({ userId, photoTitle, photoDescription, onClose, onGene
 
       // 调用AI API
       let response;
-      if (config.provider === 'openai') {
+      if (config.provider === 'openai' || config.provider === 'volcano') {
         response = await callOpenAI(config.apiKey, config.apiUrl, config.model, prompt);
       } else if (config.provider === 'claude') {
         response = await callClaude(config.apiKey, config.apiUrl, config.model, prompt);
+      } else if (config.provider === 'ollama') {
+        response = await callOllama(config.apiUrl, config.model, prompt);
       } else {
         response = await callCustomAPI(config.apiUrl, config.apiKey, prompt);
       }
@@ -95,7 +97,8 @@ function AIGenerateModal({ userId, photoTitle, photoDescription, onClose, onGene
     });
 
     if (!response.ok) {
-      throw new Error('OpenAI API error');
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error?.message || 'OpenAI/Volcano API error');
     }
 
     const data = await response.json();
@@ -126,6 +129,31 @@ function AIGenerateModal({ userId, photoTitle, photoDescription, onClose, onGene
 
     const data = await response.json();
     return data.content[0].text;
+  };
+
+  const callOllama = async (apiUrl: string, model: string, prompt: string) => {
+    const url = apiUrl || 'http://localhost:11434/api/chat';
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: model || 'llama3',
+        messages: [
+          { role: 'system', content: '你是一个专业的文案创作者，擅长为照片创作优美的文字。' },
+          { role: 'user', content: prompt },
+        ],
+        stream: false,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Ollama API error');
+    }
+
+    const data = await response.json();
+    return data.message.content;
   };
 
   const callCustomAPI = async (apiUrl: string, apiKey: string, prompt: string) => {
