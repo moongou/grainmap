@@ -15,6 +15,13 @@ const AI_PROVIDERS = [
   { id: 'custom', name: '自定义 API', defaultUrl: '', defaultModel: '' },
 ];
 
+const MAP_PROVIDERS = [
+  { id: 'amap', name: '高德地图', needsKey: true, needsSecurity: true },
+  { id: 'tianditu', name: '天地图', needsKey: true, needsSecurity: false },
+  { id: 'baidu', name: '百度地图', needsKey: false, needsSecurity: false },
+  { id: 'osm', name: 'OpenStreetMap', needsKey: false, needsSecurity: false },
+];
+
 function Settings({ user }: SettingsProps) {
   const navigate = useNavigate();
   const [, setAiConfig] = useState<AIConfig | null>(null);
@@ -27,7 +34,12 @@ function Settings({ user }: SettingsProps) {
   const [apiKey, setApiKey] = useState('');
   const [apiUrl, setApiUrl] = useState('');
   const [model, setModel] = useState('');
+
+  // Map state
+  const [mapProvider, setMapProvider] = useState<'amap' | 'tianditu' | 'baidu' | 'osm'>('amap');
   const [amapApiKey, setAmapApiKey] = useState('');
+  const [amapSecurityCode, setAmapSecurityCode] = useState('');
+  const [tiandituKey, setTiandituKey] = useState('');
 
   useEffect(() => {
     loadAIConfig();
@@ -43,18 +55,25 @@ function Settings({ user }: SettingsProps) {
         setApiUrl(config.apiUrl || '');
         setModel(config.model || '');
       }
-      
-      // 加载高德地图 API Key
+
+      // 加载地图设置
       const amapKey = await window.electronAPI.store.get('amapApiKey');
-      if (amapKey) {
-        setAmapApiKey(amapKey);
-      }
+      if (amapKey) setAmapApiKey(amapKey);
+
+      const amapSec = await window.electronAPI.store.get('amapSecurityCode');
+      if (amapSec) setAmapSecurityCode(amapSec);
+
+      const tKey = await window.electronAPI.store.get('tiandituKey');
+      if (tKey) setTiandituKey(tKey);
+
+      const mProvider = await window.electronAPI.store.get('mapProvider');
+      if (mProvider) setMapProvider(mProvider as any);
     } catch (error) {
       console.error('Error loading config:', error);
     }
   };
 
-  const handleProviderChange = (newProvider: 'openai' | 'claude' | 'custom') => {
+  const handleProviderChange = (newProvider: 'openai' | 'claude' | 'ollama' | 'volcano' | 'custom') => {
     setProvider(newProvider);
     const providerInfo = AI_PROVIDERS.find(p => p.id === newProvider);
     if (providerInfo) {
@@ -87,10 +106,11 @@ function Settings({ user }: SettingsProps) {
         model: model || undefined,
       });
 
-      // 保存高德地图 API Key
-      if (amapApiKey) {
-        await window.electronAPI.store.set('amapApiKey', amapApiKey);
-      }
+      // 保存地图设置
+      await window.electronAPI.store.set('mapProvider', mapProvider);
+      if (amapApiKey) await window.electronAPI.store.set('amapApiKey', amapApiKey);
+      if (amapSecurityCode) await window.electronAPI.store.set('amapSecurityCode', amapSecurityCode);
+      if (tiandituKey) await window.electronAPI.store.set('tiandituKey', tiandituKey);
 
       setAiConfig(config);
       setMessage('设置已保存');
@@ -105,7 +125,7 @@ function Settings({ user }: SettingsProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-4 py-4">
@@ -123,41 +143,118 @@ function Settings({ user }: SettingsProps) {
         </div>
       </div>
 
-      {/* Content */}
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="space-y-6">
-          {/* 高德地图设置 Card */}
+      {/* Content - Scrollable container */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+          {/* Map Provider Settings Card */}
           <div className="card">
             <div className="flex items-center mb-6">
               <div className="p-2 bg-primary-100 rounded-lg mr-3">
                 <MapPin className="w-6 h-6 text-primary-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">高德地图设置</h2>
-                <p className="text-sm text-gray-500">配置高德地图 API Key 以使用地图功能</p>
+                <h2 className="text-lg font-semibold text-gray-900">地图服务设置</h2>
+                <p className="text-sm text-gray-500">配置地图提供商和 API Key</p>
               </div>
             </div>
 
-            <div className="space-y-4">
-              {/* 高德地图 API Key */}
+            <div className="space-y-6">
+              {/* Provider Selection */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <div className="flex items-center">
-                    <Key className="w-4 h-4 mr-1" />
-                    高德地图 API Key
-                  </div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  地图提供商
                 </label>
-                <input
-                  type="text"
-                  value={amapApiKey}
-                  onChange={(e) => setAmapApiKey(e.target.value)}
-                  className="input-field"
-                  placeholder="输入你的高德地图 API Key"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  你可以在 <a href="https://lbs.amap.com/" target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">高德开放平台</a> 申请 API Key
-                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  {MAP_PROVIDERS.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => setMapProvider(p.id as any)}
+                      className={`p-3 rounded-lg border-2 text-center transition-colors ${
+                        mapProvider === p.id
+                          ? 'border-primary-500 bg-primary-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="font-medium text-gray-900">{p.name}</div>
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              {mapProvider === 'amap' && (
+                <div className="space-y-4 pt-2 border-t border-gray-100">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <div className="flex items-center">
+                        <Key className="w-4 h-4 mr-1" />
+                        高德地图 API Key
+                      </div>
+                    </label>
+                    <input
+                      type="text"
+                      value={amapApiKey}
+                      onChange={(e) => setAmapApiKey(e.target.value)}
+                      className="input-field"
+                      placeholder="输入你的高德地图 API Key"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <div className="flex items-center">
+                        <Key className="w-4 h-4 mr-1" />
+                        高德地图安全密钥 (JSCode)
+                      </div>
+                    </label>
+                    <input
+                      type="text"
+                      value={amapSecurityCode}
+                      onChange={(e) => setAmapSecurityCode(e.target.value)}
+                      className="input-field"
+                      placeholder="必填，否则无法加载地图"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      你可以在 <a href="https://lbs.amap.com/" target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">高德开放平台</a> 控制台查看
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {mapProvider === 'tianditu' && (
+                <div className="space-y-4 pt-2 border-t border-gray-100">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <div className="flex items-center">
+                        <Key className="w-4 h-4 mr-1" />
+                        天地图浏览器端 Token (tk)
+                      </div>
+                    </label>
+                    <input
+                      type="text"
+                      value={tiandituKey}
+                      onChange={(e) => setTiandituKey(e.target.value)}
+                      className="input-field"
+                      placeholder="输入你的天地图 tk"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      你可以在 <a href="https://www.tianditu.gov.cn/" target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">国家地理信息公共服务平台 (天地图)</a> 申请
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {mapProvider === 'baidu' && (
+                <div className="p-3 bg-blue-50 text-blue-700 rounded-lg text-sm flex items-start">
+                  <Globe className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" />
+                  <p>百度地图将以第三方图层方式载入。由于坐标系统差异 (BD-09)，标记位置可能会有少量偏移。</p>
+                </div>
+              )}
+
+              {mapProvider === 'osm' && (
+                <div className="p-3 bg-blue-50 text-blue-700 rounded-lg text-sm flex items-start">
+                  <Globe className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" />
+                  <p>OpenStreetMap 是完全免费的公开地图服务，不需要 API Key。但在国内加载速度可能较慢。</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -196,7 +293,7 @@ function Settings({ user }: SettingsProps) {
                   {AI_PROVIDERS.map((p) => (
                     <button
                       key={p.id}
-                      onClick={() => handleProviderChange(p.id as 'openai' | 'claude' | 'custom')}
+                      onClick={() => handleProviderChange(p.id as any)}
                       className={`p-3 rounded-lg border-2 text-center transition-colors ${
                         provider === p.id
                           ? 'border-primary-500 bg-primary-50'
