@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Key, Globe, Bot, AlertCircle, MapPin, Search, CheckCircle2 } from 'lucide-react';
-import { User, AIConfig } from '../types';
+import { ArrowLeft, Save, Key, Globe, Bot, AlertCircle, MapPin, Search, CheckCircle2, HelpCircle } from 'lucide-react';
+import { User, AIConfig, MapProvider } from '../types';
+import OperationGuide from '../components/OperationGuide';
 
 interface SettingsProps {
   user: User;
@@ -16,8 +17,8 @@ const AI_PROVIDERS = [
 ];
 
 const MAP_PROVIDERS = [
-  { id: 'baidu', name: '百度地图', needsKey: false, needsSecurity: false },
-  { id: 'tianditu', name: '天地图', needsKey: true, needsSecurity: false },
+  { id: 'tencent', name: '腾讯地图 (Tencent)', needsKey: false, needsSecurity: false },
+  { id: 'osm', name: 'OpenStreetMap', needsKey: false, needsSecurity: false },
 ];
 
 function Settings({ user }: SettingsProps) {
@@ -39,6 +40,7 @@ function Settings({ user }: SettingsProps) {
   const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [showGuide, setShowGuide] = useState(false);
 
   // Form state
   const [provider, setProvider] = useState<'openai' | 'claude' | 'ollama' | 'volcano' | 'custom'>('openai');
@@ -48,8 +50,7 @@ function Settings({ user }: SettingsProps) {
   const [availableModels, setAvailableModels] = useState<string[]>([]);
 
   // Map state
-  const [mapProvider, setMapProvider] = useState<'tianditu' | 'baidu'>('baidu');
-  const [tiandituKey, setTiandituKey] = useState('');
+  const [mapProvider, setMapProvider] = useState<MapProvider>('tencent');
 
   useEffect(() => {
     loadAIConfig();
@@ -67,11 +68,10 @@ function Settings({ user }: SettingsProps) {
       }
 
       // 加载地图设置
-      const tKey = await window.electronAPI.store.get('tiandituKey');
-      if (tKey) setTiandituKey(tKey);
-
       const mProvider = await window.electronAPI.store.get('mapProvider');
-      if (mProvider) setMapProvider(mProvider as any);
+      if (mProvider === 'tencent' || mProvider === 'osm') {
+        setMapProvider(mProvider);
+      }
     } catch (error) {
       console.error('Error loading config:', error);
     }
@@ -121,7 +121,6 @@ function Settings({ user }: SettingsProps) {
     try {
       // 1. 保存地图设置 (不依赖于 AI 设置)
       await window.electronAPI.store.set('mapProvider', mapProvider);
-      if (tiandituKey) await window.electronAPI.store.set('tiandituKey', tiandituKey);
 
       // 2. 保存 AI 配置
       const config = await window.electronAPI.db.saveAIConfig(user.id, {
@@ -156,6 +155,13 @@ function Settings({ user }: SettingsProps) {
                 <ArrowLeft className="w-4 h-4" />
               </button>
               <h1 className="text-base font-bold text-gray-900">设置</h1>
+              <button
+                onClick={() => setShowGuide(true)}
+                className="ml-3 p-1.5 text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+                title="操作指引"
+              >
+                <HelpCircle className="w-4 h-4" />
+              </button>
             </div>
             <button
               onClick={handleSave}
@@ -184,7 +190,7 @@ function Settings({ user }: SettingsProps) {
               </div>
               <div>
                 <h2 className="text-sm font-semibold text-gray-900">地图服务设置</h2>
-                <p className="text-[10px] text-gray-500">配置地图提供商和 API Key</p>
+                <p className="text-[10px] text-gray-500">切换当前可用的地图底图</p>
               </div>
             </div>
 
@@ -211,35 +217,6 @@ function Settings({ user }: SettingsProps) {
                 </div>
               </div>
 
-              {mapProvider === 'tianditu' && (
-                <div className="space-y-3 pt-3 border-t border-gray-100">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      <div className="flex items-center">
-                        <Key className="w-3.5 h-3.5 mr-1 text-gray-400" />
-                        天地图浏览器端 Token (tk)
-                      </div>
-                    </label>
-                    <input
-                      type="text"
-                      value={tiandituKey}
-                      onChange={(e) => setTiandituKey(e.target.value)}
-                      className="input-field text-sm !py-1.5"
-                      placeholder="输入你的天地图 tk"
-                    />
-                    <p className="text-[10px] text-gray-500 mt-1">
-                      你可以在 <a href="https://www.tianditu.gov.cn/" target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">国家地理信息公共服务平台 (天地图)</a> 申请
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {mapProvider === 'baidu' && (
-                <div className="p-2.5 bg-blue-50 text-blue-700 rounded-lg text-[11px] flex items-start border border-blue-100">
-                  <Globe className="w-3.5 h-3.5 mr-2 mt-0.5 flex-shrink-0" />
-                  <p>百度地图将以第三方图层方式载入。由于坐标系统差异 (BD-09)，标记位置可能会有少量偏移。</p>
-                </div>
-              )}
             </div>
           </div>
 
@@ -385,6 +362,26 @@ function Settings({ user }: SettingsProps) {
           </div>
         </div>
       </div>
+
+      {/* Operation Guide Modal */}
+      {showGuide && (
+        <div className="fixed inset-0 z-[3000] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-bold text-gray-900">操作指引</h2>
+              <button
+                onClick={() => setShowGuide(false)}
+                className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <OperationGuide />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

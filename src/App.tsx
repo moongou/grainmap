@@ -4,6 +4,8 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Map from './pages/Map';
 import Settings from './pages/Settings';
+import BrowsePage from './pages/BrowsePage';
+import EditPage from './pages/EditPage';
 import InstallationGuide from './components/InstallationGuide';
 import { User } from './types';
 
@@ -15,6 +17,11 @@ function App() {
   useEffect(() => {
     // Check for stored user session and show installation guide on first launch
     const checkSession = async () => {
+      if (!window.electronAPI) {
+        setLoading(false);
+        return;
+      }
+
       try {
         const storedUser = await window.electronAPI.store.get('currentUser');
         if (storedUser) {
@@ -39,12 +46,16 @@ function App() {
 
   const handleLogin = async (userData: User) => {
     setUser(userData);
-    await window.electronAPI.store.set('currentUser', userData);
+    if (window.electronAPI) {
+      await window.electronAPI.store.set('currentUser', userData);
+    }
   };
 
   const handleLogout = async () => {
     setUser(null);
-    await window.electronAPI.store.set('currentUser', null);
+    if (window.electronAPI) {
+      await window.electronAPI.store.set('currentUser', null);
+    }
   };
 
   if (loading) {
@@ -85,6 +96,36 @@ function App() {
           element={
             user ? (
               <Settings user={user} />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/browse"
+          element={
+            user ? (
+              <BrowsePage user={user} />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/browse/:photoId"
+          element={
+            user ? (
+              <BrowsePage user={user} />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/edit/:photoId"
+          element={
+            user ? (
+              <EditPage user={user} />
             ) : (
               <Navigate to="/login" replace />
             )

@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Settings, Plus, X, Image as ImageIcon, Loader2, Sparkles, MapPin, Download, Upload, FolderPlus, MoreVertical, Edit2, Trash2, ChevronRight, Folder } from 'lucide-react';
-import AMapLoader from '@amap/amap-jsapi-loader';
-import { User, Photo, Album } from '../types';
-import PhotoModal from '../components/PhotoModal';
+import { LogOut, Settings, Plus, X, Image as ImageIcon, Loader2, Sparkles, MapPin, FolderPlus, Edit2, Trash2, Folder, AlertCircle, Eye } from 'lucide-react';
+import L, { TileLayer } from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { User, Photo, Album, MapProvider } from '../types';
 import AIGenerateModal from '../components/AIGenerateModal';
 
 interface MapProps {
@@ -11,9 +11,26 @@ interface MapProps {
   onLogout: () => void;
 }
 
-// 默认中心位置 (三亚)
-const DEFAULT_CENTER = [109.5119, 18.2528];
+// 默认中心位置 — Leaflet uses [lat, lng]
+const DEFAULT_CENTER: [number, number] = [19.188947, 109.778137];
 const DEFAULT_ZOOM = 9;
+
+// Custom TileLayer for Tencent maps (requires server selection + y inversion)
+class TencentTileLayer extends TileLayer {
+  constructor(private styleId: number = 1000) {
+    super('', {});
+  }
+
+  getTileUrl(coords: { x: number; y: number; z: number }): string {
+    const { x, y, z } = coords;
+    const server = (x + y) % 4;
+    const yInv = Math.pow(2, z) - 1 - y;
+    return `https://rt${server}.map.gtimg.com/tile?z=${z}&x=${x}&y=${yInv}&styleid=${this.styleId}&version=811`;
+  }
+}
+
+// OSM tile URL template
+const OSM_TILE_URL = 'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 function Map({ user, onLogout }: MapProps) {
   const navigate = useNavigate();
@@ -30,7 +47,15 @@ function Map({ user, onLogout }: MapProps) {
   }
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<any>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const selectMapContainerRef = useRef<HTMLDivElement>(null);
+  const selectMapRef = useRef<L.Map | null>(null);
+  const mainTileLayerRef = useRef<L.TileLayer | null>(null);
+  const selectTileLayerRef = useRef<TileLayer | TencentTileLayer | null>(null);
+  const markersRef = useRef<L.Marker[]>([]);
+  const selectMarkerRef = useRef<L.Marker | null>(null);
+  const mapInitializedRef = useRef(false);
+  const selectMapInitializedRef = useRef(false);
 
   // 数据状态
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -38,7 +63,6 @@ function Map({ user, onLogout }: MapProps) {
   const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
 
   // UI 状态
-  const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAlbumModal, setShowAlbumModal] = useState(false);
   const [editingAlbum, setEditingAlbum] = useState<Album | null>(null);
@@ -46,21 +70,18 @@ function Map({ user, onLogout }: MapProps) {
   const [editingPhoto, setEditingPhoto] = useState<Photo | null>(null);
   const [loading, setLoading] = useState(false);
   const [mapLoading, setMapLoading] = useState(true);
-  const [mapType, setMapType] = useState<'standard' | 'satellite' | 'terrain'>('standard');
-  const [mapProvider, setMapProvider] = useState<'tianditu' | 'baidu'>('baidu');
+  const [mapError, setMapError] = useState('');
+  const [mapType, setMapType] = useState<'standard' | 'satellite'>('standard');
+  const [mapProvider, setMapProvider] = useState<MapProvider>('tencent');
   const [isEditing, setIsEditing] = useState(false);
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
-
-  // 选点地图引用
-  const selectMapContainerRef = useRef<HTMLDivElement>(null);
-  const selectMapRef = useRef<any>(null);
 
   // 添加照片表单状态 (支持多张导入)
   const [newPhoto, setNewPhoto] = useState<Partial<Photo>>({
     title: '',
     description: '',
-    latitude: DEFAULT_CENTER[1],
-    longitude: DEFAULT_CENTER[0],
+    latitude: DEFAULT_CENTER[0],
+    longitude: DEFAULT_CENTER[1],
     address: '',
     albumId: null,
   });
@@ -70,209 +91,201 @@ function Map({ user, onLogout }: MapProps) {
   // 相册表单
   const [albumForm, setAlbumForm] = useState({ name: '', description: '' });
 
-  // 初始化地图
+  // Build a tile layer for the given provider and map type
+  const buildTileLayer = (provider: MapProvider, type: 'standard' | 'satellite'): TileLayer | TencentTileLayer => {
+    if (provider === 'tencent') {
+      const styleId = type === 'satellite' ? 101 : 1000;
+      return new TencentTileLayer(styleId);
+    } else {
+      return L.tileLayer(OSM_TILE_URL, {
+        tileSize: 256,
+        minZoom: 3,
+        maxZoom: 18,
+        attribution: '',
+      });
+    }
+  };
+
+  
+  // 创建自定义标记图标
+  const createMarkerIcon = (photo: Photo) => {
+    const iconHtml = `
+      <div class="custom-marker">
+        <img src="${photo.imagePath}" class="marker-image" />
+        <div class="marker-pin"></div>
+      </div>
+    `;
+    return L.divIcon({
+      html: iconHtml,
+      className: 'custom-leaflet-marker',
+      iconSize: [50, 60],
+      iconAnchor: [25, 60],
+      popupAnchor: [0, -60],
+    });
+  };
+
+  // 初始化主地图
   useEffect(() => {
     const initMap = async () => {
       try {
         setMapLoading(true);
-        const amapApiKey = await window.electronAPI.store.get('amapApiKey');
-        const amapSec = await window.electronAPI.store.get('amapSecurityCode');
-        const mProvider = await window.electronAPI.store.get('mapProvider') || 'baidu';
-        const tKey = await window.electronAPI.store.get('tiandituKey');
+        setMapError('');
 
-        setMapProvider(mProvider as any);
-
-        if (amapSec) {
-          (window as any)._AMapSecurityConfig = { securityJsCode: amapSec };
+        if (mapInitializedRef.current) {
+          setMapLoading(false);
+          return;
         }
 
-        const AMap = await AMapLoader.load({
-          key: amapApiKey || '6be7a012c419356073167735399581f4',
-          version: '2.0',
-          plugins: ['AMap.ToolBar', 'AMap.Scale', 'AMap.Geocoder', 'AMap.ControlBar'],
-        }).catch(err => {
-          console.error('AMapLoader failed, retrying with default key...', err);
-          return AMapLoader.load({
-            key: '6be7a012c419356073167735399581f4',
-            version: '2.0',
-            plugins: ['AMap.ToolBar', 'AMap.Scale', 'AMap.Geocoder', 'AMap.ControlBar'],
-          });
+        if (!mapContainerRef.current) {
+          console.error('Map container not found!');
+          setMapError('地图容器未找到');
+          setMapLoading(false);
+          return;
+        }
+
+        // Load map provider preference from settings
+        const stored = await window.electronAPI.store.get('mapProvider');
+        const provider: MapProvider = stored === 'osm' ? 'osm' : 'tencent';
+        setMapProvider(provider);
+        console.log('Map provider:', provider);
+
+        // Create map instance
+        const map = L.map(mapContainerRef.current, {
+          center: DEFAULT_CENTER,
+          zoom: DEFAULT_ZOOM,
+          zoomControl: true,
+          attributionControl: true,
         });
 
-        if (mapContainerRef.current && AMap) {
-          const map = new AMap.Map(mapContainerRef.current, {
-            zoom: DEFAULT_ZOOM,
-            center: DEFAULT_CENTER,
-            viewMode: '3D',
-          });
+        // Add initial tile layer
+        mainTileLayerRef.current = buildTileLayer(provider, 'standard');
+        mainTileLayerRef.current.addTo(map);
 
-          configureMapLayers(map, mProvider, tKey);
-          map.addControl(new AMap.ToolBar());
-          map.addControl(new AMap.Scale());
-          const controlBar = new (window as any).AMap.ControlBar({ position: { right: '10px', top: '10px' } });
-          map.addControl(controlBar);
-          mapRef.current = map;
-        }
+        mapRef.current = map;
+        mapInitializedRef.current = true;
+        console.log('Map initialized successfully');
+        setMapLoading(false);
       } catch (error) {
         console.error('Map initialization error:', error);
-      } finally {
+        setMapError('地图加载失败，请检查网络连接。');
         setMapLoading(false);
       }
     };
 
     initMap();
-    return () => { if (mapRef.current) mapRef.current.destroy(); };
+
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+      mainTileLayerRef.current = null;
+      // Note: we intentionally do NOT reset mapInitializedRef to false.
+      // The guard `if (mapInitializedRef.current) return` at the top of initMap
+      // will prevent double-initialization on any future remount.
+    };
   }, []);
 
-  const configureMapLayers = (map: any, provider: string, tKey?: string) => {
-    if (provider === 'tianditu' && tKey) {
-      const vecLayer = new (window as any).AMap.TileLayer({
-        getTileUrl: (x: number, y: number, z: number) =>
-          `https://t0.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL=${x}&TILEROW=${y}&TILEMATRIX=${z}&tk=${tKey}`
-      });
-      const cvaLayer = new (window as any).AMap.TileLayer({
-        getTileUrl: (x: number, y: number, z: number) =>
-          `https://t0.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL=${x}&TILEROW=${y}&TILEMATRIX=${z}&tk=${tKey}`
-      });
-      map.setLayers([vecLayer, cvaLayer]);
-    } else if (provider === 'baidu') {
-      const baiduLayer = new (window as any).AMap.TileLayer({
-        getTileUrl: (x: number, y: number, z: number) => {
-          const server = Math.abs(x + y) % 4;
-          const styles = mapType === 'satellite' ? 'sh' : 'pl';
-          return `https://maponline${server}.bdimg.com/tile/?qt=vtile&x=${x}&y=${y}&z=${z}&styles=${styles}&scaler=1&udt=20230519`;
-        },
-        tileSize: 256,
-        zooms: [3, 19]
-      });
-      map.setLayers([baiduLayer]);
-    }
-  };
-
+  // Handle standard/satellite layer switch
   useEffect(() => {
-    if (!mapRef.current) return;
-    updateMapLayers(mapRef.current);
+    if (!mapRef.current || !mapInitializedRef.current) return;
+    if (mainTileLayerRef.current) {
+      mapRef.current.removeLayer(mainTileLayerRef.current);
+    }
+    mainTileLayerRef.current = buildTileLayer(mapProvider, mapType);
+    mainTileLayerRef.current.addTo(mapRef.current);
   }, [mapType, mapProvider]);
 
+  // Select map — shown in both add-modal and edit-modal
   useEffect(() => {
-    if (!selectMapRef.current) return;
-    updateMapLayers(selectMapRef.current);
-  }, [mapType, mapProvider, showAddModal, currentImportIndex]);
-
-  const updateMapLayers = async (mapInstance: any) => {
-    if (mapProvider === 'tianditu') {
-      const tKey = await window.electronAPI.store.get('tiandituKey');
-      if (!tKey) return;
-      let layers = [];
-      if (mapType === 'satellite') {
-        layers.push(new (window as any).AMap.TileLayer({
-          getTileUrl: (x: number, y: number, z: number) =>
-            `https://t0.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL=${x}&TILEROW=${y}&TILEMATRIX=${z}&tk=${tKey}`
-        }));
-        layers.push(new (window as any).AMap.TileLayer({
-          getTileUrl: (x: number, y: number, z: number) =>
-            `https://t0.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL=${x}&TILEROW=${y}&TILEMATRIX=${z}&tk=${tKey}`
-        }));
-      } else if (mapType === 'terrain') {
-        layers.push(new (window as any).AMap.TileLayer({
-          getTileUrl: (x: number, y: number, z: number) =>
-            `https://t0.tianditu.gov.cn/ter_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ter&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL=${x}&TILEROW=${y}&TILEMATRIX=${z}&tk=${tKey}`
-        }));
-        layers.push(new (window as any).AMap.TileLayer({
-          getTileUrl: (x: number, y: number, z: number) =>
-            `https://t0.tianditu.gov.cn/cta_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cta&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL=${x}&TILEROW=${y}&TILEMATRIX=${z}&tk=${tKey}`
-        }));
-      } else {
-        layers.push(new (window as any).AMap.TileLayer({
-          getTileUrl: (x: number, y: number, z: number) =>
-            `https://t0.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL=${x}&TILEROW=${y}&TILEMATRIX=${z}&tk=${tKey}`
-        }));
-        layers.push(new (window as any).AMap.TileLayer({
-          getTileUrl: (x: number, y: number, z: number) =>
-            `https://t0.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL=${x}&TILEROW=${y}&TILEMATRIX=${z}&tk=${tKey}`
-        }));
+    // Initialize when add modal opens OR when editing a photo
+    const shouldInit = showAddModal || !!editingPhoto;
+    if (!shouldInit) {
+      if (selectMapRef.current) {
+        selectMapRef.current.remove();
+        selectMapRef.current = null;
       }
-      mapInstance.setLayers(layers);
-    } else if (mapProvider === 'baidu') {
-      const baiduLayer = new (window as any).AMap.TileLayer({
-        getTileUrl: (x: number, y: number, z: number) => {
-          const server = Math.abs(x + y) % 4;
-          const styles = mapType === 'satellite' ? 'sh' : 'pl';
-          return `https://maponline${server}.bdimg.com/tile/?qt=vtile&x=${x}&y=${y}&z=${z}&styles=${styles}&scaler=1&udt=20230519`;
-        },
-        tileSize: 256,
-        zooms: [3, 19]
-      });
-      mapInstance.setLayers([baiduLayer]);
+      selectMapInitializedRef.current = false;
+      selectMarkerRef.current = null;
+      return;
     }
-  };
 
-  // 处理选点地图的显示
-  useEffect(() => {
-    if (showAddModal && selectMapContainerRef.current) {
-      const initSelectMap = async () => {
-        try {
-          const amapApiKey = await window.electronAPI.store.get('amapApiKey');
-          const amapSec = await window.electronAPI.store.get('amapSecurityCode');
-          const mProvider = await window.electronAPI.store.get('mapProvider') || 'baidu';
-          const tKey = await window.electronAPI.store.get('tiandituKey');
+    const initSelectMap = async () => {
+      try {
+        if (selectMapInitializedRef.current) return;
 
-          if (amapSec) { (window as any)._AMapSecurityConfig = { securityJsCode: amapSec }; }
+        // Pick correct container: add-modal uses ref, edit-modal uses class selector
+        const container = showAddModal
+          ? selectMapContainerRef.current
+          : (document.querySelector('.select-map-container') as HTMLDivElement);
+        if (!container) return;
 
-          const AMap = await AMapLoader.load({
-            key: amapApiKey || '6be7a012c419356073167735399581f4',
-            version: '2.0',
-            plugins: ['AMap.ToolBar', 'AMap.Scale', 'AMap.Geocoder'],
-          });
-
-          const map = new AMap.Map(selectMapContainerRef.current, {
-            zoom: 12,
-            center: [newPhoto.longitude || DEFAULT_CENTER[0], newPhoto.latitude || DEFAULT_CENTER[1]],
-            viewMode: '3D',
-          });
-
-          configureMapLayers(map, mProvider, tKey);
-          map.addControl(new AMap.ToolBar({ position: { right: '10px', top: '10px' } }));
-          map.addControl(new AMap.Scale());
-
-          // 点击选点
-          map.on('click', (e: any) => {
-            const lnglat = e.lnglat;
-            setNewPhoto(prev => ({
-              ...prev,
-              latitude: lnglat.getLat(),
-              longitude: lnglat.getLng(),
-            }));
-
-            const geocoder = new AMap.Geocoder({ radius: 1000, extensions: 'all' });
-            geocoder.getAddress([lnglat.getLng(), lnglat.getLat()], (status: string, result: any) => {
-              if (status === 'complete' && result.regeocode) {
-                setNewPhoto(prev => ({ ...prev, address: result.regeocode.formattedAddress }));
-              }
-            });
-
-            map.clearMap();
-            new AMap.Marker({ position: lnglat, map: map });
-          });
-
-          selectMapRef.current = map;
-
-          // 如果当前照片已有经纬度，显示标记
-          if (newPhoto.longitude && newPhoto.latitude) {
-            new AMap.Marker({ position: [newPhoto.longitude, newPhoto.latitude], map: map });
-          }
-        } catch (error) {
-          console.error('Select map initialization error:', error);
+        if (selectMapRef.current) {
+          selectMapRef.current.remove();
+          selectMapRef.current = null;
         }
-      };
+        selectMapInitializedRef.current = false;
 
-      const timer = setTimeout(initSelectMap, 100);
-      return () => {
-        clearTimeout(timer);
-        if (selectMapRef.current) selectMapRef.current.destroy();
-      };
+        const centerLat = editingPhoto?.latitude ?? newPhoto.latitude ?? DEFAULT_CENTER[0];
+        const centerLng = editingPhoto?.longitude ?? newPhoto.longitude ?? DEFAULT_CENTER[1];
+
+        const map = L.map(container, {
+          center: [centerLat, centerLng] as [number, number],
+          zoom: 12,
+          zoomControl: true,
+          attributionControl: false,
+        });
+
+        selectTileLayerRef.current = buildTileLayer(mapProvider, 'standard');
+        selectTileLayerRef.current.addTo(map);
+
+        const updateSelection = (lat: number, lng: number) => {
+          const address = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+          if (editingPhoto) {
+            setEditingPhoto(prev => prev ? { ...prev, latitude: lat, longitude: lng, address } : prev);
+          } else {
+            setNewPhoto(prev => ({ ...prev, latitude: lat, longitude: lng, address }));
+          }
+
+          if (selectMarkerRef.current) selectMarkerRef.current.remove();
+          const targetPhoto = editingPhoto || { imagePath: selectedImages[currentImportIndex]?.data || '' } as Photo;
+          selectMarkerRef.current = L.marker([lat, lng], { icon: createMarkerIcon(targetPhoto) }).addTo(map);
+        };
+
+        map.on('click', (e: L.LeafletMouseEvent) => {
+          updateSelection(e.latlng.lat, e.latlng.lng);
+        });
+
+        selectMapRef.current = map;
+        selectMapInitializedRef.current = true;
+
+        if (editingPhoto) {
+          updateSelection(editingPhoto.latitude, editingPhoto.longitude);
+        } else if (newPhoto.latitude && newPhoto.longitude) {
+          updateSelection(newPhoto.latitude, newPhoto.longitude);
+        }
+      } catch (error) {
+        console.error('Select map initialization error:', error);
+      }
+    };
+
+    // Reset init flag when switching between add and edit modes
+    if (editingPhoto && !showAddModal) {
+      selectMapInitializedRef.current = false;
     }
-  }, [showAddModal, currentImportIndex]);
+
+    const timer = setTimeout(initSelectMap, 100);
+    return () => {
+      clearTimeout(timer);
+      if (selectMapRef.current) {
+        selectMapRef.current.remove();
+        selectMapRef.current = null;
+      }
+      selectMapInitializedRef.current = false;
+      selectTileLayerRef.current = null;
+      selectMarkerRef.current = null;
+    };
+  }, [showAddModal, currentImportIndex, editingPhoto?.id, mapProvider, mapType]);
 
   // 加载数据
   useEffect(() => {
@@ -280,44 +293,50 @@ function Map({ user, onLogout }: MapProps) {
     loadAlbums();
   }, [user.id]);
 
+  // Sync editingPhoto lat/lng changes (from text input) to select map marker
+  useEffect(() => {
+    if (!editingPhoto || !selectMapRef.current || !selectMapInitializedRef.current) return;
+    const lat = editingPhoto.latitude;
+    const lng = editingPhoto.longitude;
+    selectMapRef.current.setView([lat, lng], 12);
+    if (selectMarkerRef.current) selectMarkerRef.current.remove();
+    selectMarkerRef.current = L.marker([lat, lng], { icon: createMarkerIcon(editingPhoto) }).addTo(selectMapRef.current);
+  }, [editingPhoto?.latitude, editingPhoto?.longitude]);
+
+  // Switch select map tile layer when provider or type changes
+  useEffect(() => {
+    if (!selectMapRef.current || !selectTileLayerRef.current) return;
+    selectMapRef.current.removeLayer(selectTileLayerRef.current);
+    selectTileLayerRef.current = buildTileLayer(mapProvider, mapType);
+    selectTileLayerRef.current.addTo(selectMapRef.current);
+  }, [mapType, mapProvider]);
+
   // 更新地图标记
   useEffect(() => {
-    if (mapRef.current) {
-      mapRef.current.clearMap();
-      const filteredPhotos = selectedAlbumId
-        ? photos.filter(p => p.albumId === selectedAlbumId)
-        : photos;
+    if (!mapRef.current) return;
 
-      filteredPhotos.forEach(photo => {
-        if (!photo.longitude || !photo.latitude) return;
-        const marker = new (window as any).AMap.Marker({
-          position: [photo.longitude, photo.latitude],
-          title: photo.title,
-          content: createMarkerContent(photo),
-          offset: new (window as any).AMap.Pixel(-20, -40),
-        });
+    // 清除现有标记
+    markersRef.current.forEach(m => m.remove());
+    markersRef.current = [];
 
-        marker.on('click', () => {
-          setSelectedPhoto(photo);
-          if (mapRef.current) {
-            mapRef.current.setCenter([photo.longitude, photo.latitude]);
-            mapRef.current.setZoom(15, false, 500);
-          }
-        });
-        mapRef.current.add(marker);
+    const filteredPhotos = selectedAlbumId
+      ? photos.filter(p => p.albumId === selectedAlbumId)
+      : photos;
+
+    filteredPhotos.forEach(photo => {
+      if (!photo.longitude || !photo.latitude) return;
+      const marker = L.marker([photo.latitude, photo.longitude], {
+        icon: createMarkerIcon(photo),
       });
-    }
-  }, [photos, selectedAlbumId]);
 
-  const createMarkerContent = (photo: Photo) => {
-    const div = document.createElement('div');
-    div.className = 'custom-marker';
-    div.innerHTML = `
-      <img src="${photo.imagePath}" class="marker-image" />
-      <div class="marker-pin"></div>
-    `;
-    return div;
-  };
+      marker.on('click', () => {
+        navigate(`/browse/${photo.id}`);
+      });
+
+      marker.addTo(mapRef.current!);
+      markersRef.current.push(marker);
+    });
+  }, [photos, selectedAlbumId]);
 
   const loadPhotos = async () => {
     try {
@@ -335,6 +354,11 @@ function Map({ user, onLogout }: MapProps) {
     } catch (error) {
       console.error('Error loading albums:', error);
     }
+  };
+
+
+  const openPhoto = (photo: Photo) => {
+    navigate(`/browse/${photo.id}`);
   };
 
   const handleSelectImage = async () => {
@@ -355,25 +379,24 @@ function Map({ user, onLogout }: MapProps) {
       ...prev,
       title: photoData.name.split('.')[0],
       description: '',
-      latitude: photoData.exif?.latitude || DEFAULT_CENTER[1],
-      longitude: photoData.exif?.longitude || DEFAULT_CENTER[0],
+      latitude: photoData.exif?.latitude || DEFAULT_CENTER[0],
+      longitude: photoData.exif?.longitude || DEFAULT_CENTER[1],
       address: '',
       aiGeneratedText: '',
       albumId: selectedAlbumId,
     }));
 
     if (photoData.exif?.latitude && selectMapRef.current) {
-      const lnglat = [photoData.exif.longitude, photoData.exif.latitude];
-      selectMapRef.current.setCenter(lnglat);
-      selectMapRef.current.clearMap();
-      new (window as any).AMap.Marker({ position: lnglat, map: selectMapRef.current });
-
-      const geocoder = new (window as any).AMap.Geocoder({ radius: 1000, extensions: 'all' });
-      geocoder.getAddress(lnglat, (status: string, gResult: any) => {
-        if (status === 'complete' && gResult.regeocode) {
-          setNewPhoto(prev => ({ ...prev, address: gResult.regeocode.formattedAddress }));
-        }
-      });
+      const latlng: [number, number] = [photoData.exif.latitude, photoData.exif.longitude];
+      selectMapRef.current.setView(latlng, 12);
+      if (selectMarkerRef.current) {
+        selectMarkerRef.current.remove();
+      }
+      selectMarkerRef.current = L.marker(latlng).addTo(selectMapRef.current);
+      setNewPhoto(prev => ({
+        ...prev,
+        address: `${photoData.exif.latitude.toFixed(6)}, ${photoData.exif.longitude.toFixed(6)}`,
+      }));
     }
   };
 
@@ -414,8 +437,8 @@ function Map({ user, onLogout }: MapProps) {
           title: newPhoto.title || current.name,
           description: newPhoto.description || '',
           imagePath: savedImage.path,
-          latitude: newPhoto.latitude || DEFAULT_CENTER[1],
-          longitude: newPhoto.longitude || DEFAULT_CENTER[0],
+          latitude: newPhoto.latitude || DEFAULT_CENTER[0],
+          longitude: newPhoto.longitude || DEFAULT_CENTER[1],
           address: newPhoto.address || '',
           aiGeneratedText: newPhoto.aiGeneratedText || '',
         });
@@ -459,35 +482,6 @@ function Map({ user, onLogout }: MapProps) {
     }
   };
 
-  const handleDeletePhoto = async (photoId: string) => {
-    if (!confirm('确定要删除这张照片吗？')) return;
-    try {
-      const photo = photos.find(p => p.id === photoId);
-      if (photo) await window.electronAPI.file.deleteImage(photo.imagePath);
-      await window.electronAPI.db.deletePhoto(photoId);
-      setPhotos(prev => prev.filter(p => p.id !== photoId));
-      setSelectedPhoto(null);
-    } catch (error) {
-      console.error('Error deleting photo:', error);
-    }
-  };
-
-  const handleMovePhotoToAlbum = async (albumId: string | null) => {
-    if (!selectedPhoto) return;
-    try {
-      const updated = await window.electronAPI.db.updatePhoto(selectedPhoto.id, {
-        ...selectedPhoto,
-        albumId,
-      });
-      if (updated) {
-        setPhotos(prev => prev.map(p => p.id === updated.id ? updated : p));
-        setSelectedPhoto(updated);
-      }
-    } catch (error) {
-      console.error('Error moving photo to album:', error);
-    }
-  };
-
   const handleAlbumAction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!albumForm.name.trim()) return;
@@ -514,7 +508,7 @@ function Map({ user, onLogout }: MapProps) {
       await window.electronAPI.db.deleteAlbum(id);
       setAlbums(prev => prev.filter(a => a.id !== id));
       if (selectedAlbumId === id) setSelectedAlbumId(null);
-      loadPhotos(); // 刷新以更新相片的 albumId 状态
+      loadPhotos();
     } catch (error) {
       console.error('Error deleting album:', error);
     }
@@ -524,8 +518,8 @@ function Map({ user, onLogout }: MapProps) {
     setNewPhoto({
       title: '',
       description: '',
-      latitude: DEFAULT_CENTER[1],
-      longitude: DEFAULT_CENTER[0],
+      latitude: DEFAULT_CENTER[0],
+      longitude: DEFAULT_CENTER[1],
       address: '',
       albumId: selectedAlbumId,
     });
@@ -533,24 +527,6 @@ function Map({ user, onLogout }: MapProps) {
     setCurrentImportIndex(0);
     setIsEditing(false);
     setEditingPhotoId(null);
-  };
-
-  const handleEditLocation = (photo: Photo) => {
-    setSelectedPhoto(null);
-    setNewPhoto({
-      title: photo.title,
-      description: photo.description,
-      latitude: photo.latitude,
-      longitude: photo.longitude,
-      address: photo.address,
-      aiGeneratedText: photo.aiGeneratedText,
-      albumId: photo.albumId,
-    });
-    setSelectedImages([{ data: photo.imagePath, name: '已保存的照片', exif: { latitude: photo.latitude, longitude: photo.longitude } }]);
-    setCurrentImportIndex(0);
-    setIsEditing(true);
-    setEditingPhotoId(photo.id);
-    setShowAddModal(true);
   };
 
   const handleAIGenerated = (text: string) => {
@@ -562,9 +538,9 @@ function Map({ user, onLogout }: MapProps) {
     setShowAIGenerate(false);
   };
 
-  const filteredPhotos = selectedAlbumId
-    ? photos.filter(p => p.albumId === selectedAlbumId)
-    : photos;
+  const filteredPhotos = useMemo(() => (
+    selectedAlbumId ? photos.filter(p => p.albumId === selectedAlbumId) : photos
+  ), [photos, selectedAlbumId]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
@@ -632,6 +608,10 @@ function Map({ user, onLogout }: MapProps) {
 
         {/* 操作按钮 */}
         <div className="p-4 border-b border-gray-200 space-y-2">
+          <button onClick={() => navigate('/browse')} className="w-full btn-secondary flex items-center justify-center">
+            <Eye className="w-4 h-4 mr-2" />
+            浏览模式
+          </button>
           <button onClick={() => { resetAddForm(); setShowAddModal(true); }} className="w-full btn-primary flex items-center justify-center">
             <Plus className="w-4 h-4 mr-2" />
             添加照片
@@ -648,17 +628,11 @@ function Map({ user, onLogout }: MapProps) {
               <div
                 key={photo.id}
                 className="group bg-gray-50 rounded-lg p-3 cursor-pointer hover:bg-gray-100 transition-colors relative"
-                onClick={() => {
-                  setSelectedPhoto(photo);
-                  if (photo.longitude && photo.latitude && mapRef.current) {
-                    mapRef.current.setCenter([photo.longitude, photo.latitude], false, 500);
-                    mapRef.current.setZoom(15, false, 500);
-                  }
-                }}
+                onClick={() => openPhoto(photo)}
               >
                 <div className="flex items-start space-x-3">
                   <div className="relative">
-                    <img src={photo.imagePath} alt={photo.title} className="w-16 h-16 object-cover rounded-lg" />
+                    <img src={photo.imagePath} alt={photo.title} className="w-20 h-20 object-cover rounded-lg bg-gray-100" />
                     {photo.latitude && photo.longitude && (
                       <div className="absolute -top-1 -right-1 bg-primary-500 text-white p-0.5 rounded-full border border-white shadow-sm">
                         <MapPin className="w-2.5 h-2.5" />
@@ -693,23 +667,47 @@ function Map({ user, onLogout }: MapProps) {
             </div>
           </div>
         )}
-        <div ref={mapContainerRef} className="w-full h-full" />
+        {mapError && !mapLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-100 z-10 p-6">
+            <div className="max-w-md text-center text-gray-700">
+              <AlertCircle className="w-10 h-10 mx-auto mb-3 text-red-500" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">地图加载失败</h3>
+              <p className="text-sm text-gray-600 mb-4">{mapError}</p>
+              <button
+                onClick={() => navigate('/settings')}
+                className="btn-primary !py-2 !px-4 text-sm"
+              >
+                前往设置
+              </button>
+            </div>
+          </div>
+        )}
+        <div ref={mapContainerRef} id="grainmap-main-map" className="w-full h-full" />
 
         {/* 图层切换按钮 */}
         <div className="absolute left-4 bottom-4 flex bg-white rounded-lg shadow-md overflow-hidden z-10">
           <button onClick={() => setMapType('standard')} className={`px-3 py-1.5 text-xs font-medium border-r border-gray-100 transition-colors ${mapType === 'standard' ? 'bg-primary-500 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>标准</button>
-          <button onClick={() => setMapType('satellite')} className={`px-3 py-1.5 text-xs font-medium border-r border-gray-100 transition-colors ${mapType === 'satellite' ? 'bg-primary-500 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>卫星</button>
-          <button onClick={() => setMapType('terrain')} className={`px-3 py-1.5 text-xs font-medium transition-colors ${mapType === 'terrain' ? 'bg-primary-500 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>地形</button>
+          <button onClick={() => setMapType('satellite')} className={`px-3 py-1.5 text-xs font-medium transition-colors ${mapType === 'satellite' ? 'bg-primary-500 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>卫星</button>
+        </div>
+
+        {/* 当前地图信息 */}
+        <div className="absolute left-4 top-4 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-lg shadow-md z-10">
+          <span className="text-xs text-gray-600">
+            {mapProvider === 'tencent' ? '腾讯地图' : 'OpenStreetMap'} · {mapType === 'satellite' ? '卫星' : '标准'}
+          </span>
         </div>
       </div>
 
       {/* 添加照片全屏 UI */}
       {showAddModal && (
         <div className="fixed inset-0 z-[1000] bg-white flex h-screen w-screen overflow-hidden animate-fade-in">
-          <div className="w-[450px] flex flex-col h-full border-r border-gray-100 bg-white">
+          <div className="w-[520px] flex flex-col h-full border-r border-gray-100 bg-white">
             <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50">
               <div>
                 <h2 className="text-xl font-bold text-gray-900">{isEditing ? '编辑照片' : '添加照片'}</h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  {isEditing ? '左侧调整照片信息，右侧直接在地图上修改位置。' : '先看照片，再在右侧地图上确认拍摄位置。'}
+                </p>
                 {!isEditing && selectedImages.length > 1 && (
                   <p className="text-xs text-gray-500 mt-1">正在导入第 {currentImportIndex + 1} 张，共 {selectedImages.length} 张</p>
                 )}
@@ -722,7 +720,7 @@ function Map({ user, onLogout }: MapProps) {
                 <label className="block text-sm font-medium text-gray-700 mb-2">选择照片</label>
                 {selectedImages.length > 0 ? (
                   <div className="relative">
-                    <img src={selectedImages[currentImportIndex]?.data} alt="Selected" className="w-full aspect-video object-cover rounded-xl shadow-sm" />
+                    <img src={selectedImages[currentImportIndex]?.data} alt="Selected" className="w-full max-h-[36vh] object-contain rounded-xl shadow-sm bg-gray-100" />
                     {!isEditing && (
                       <button onClick={() => { setSelectedImages([]); }} className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 transition-colors"><X className="w-4 h-4" /></button>
                     )}
@@ -744,7 +742,7 @@ function Map({ user, onLogout }: MapProps) {
                     className="input-field text-sm"
                   >
                     <option value="">未分类</option>
-                    {albums.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    {albums.map(a => (<option key={a.id} value={a.id}>{a.name}</option>))}
                   </select>
                 </div>
                 <div>
@@ -755,6 +753,11 @@ function Map({ user, onLogout }: MapProps) {
                   <label className="block text-sm font-medium text-gray-700 mb-1">描述</label>
                   <textarea value={newPhoto.description} onChange={(e) => setNewPhoto(prev => ({ ...prev, description: e.target.value }))} className="input-field h-24 resize-none" placeholder="输入照片描述" />
                 </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">纬度</span><span className="text-sm font-mono">{newPhoto.latitude?.toFixed(6)}</span></div>
+                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">经度</span><span className="text-sm font-mono">{newPhoto.longitude?.toFixed(6)}</span></div>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">地址 / 坐标</span><span className="text-sm break-all">{newPhoto.address || '在右侧地图上点击选点'}</span></div>
                 <button onClick={() => setShowAIGenerate(true)} className="w-full py-2.5 px-4 bg-primary-50 text-primary-600 rounded-lg flex items-center justify-center font-medium hover:bg-primary-100 transition-colors">
                   <Sparkles className="w-4 h-4 mr-2" />使用 AI 生成文案
                 </button>
@@ -764,15 +767,6 @@ function Map({ user, onLogout }: MapProps) {
                     <p className="text-sm text-gray-700 leading-relaxed">{newPhoto.aiGeneratedText}</p>
                   </div>
                 )}
-              </div>
-
-              <div className="pt-4 border-t border-gray-100">
-                <div className="flex items-center text-gray-900 font-medium mb-3"><MapPin className="w-4 h-4 mr-1.5 text-primary-600" /><span>照片位置</span></div>
-                <div className="grid grid-cols-2 gap-3 mb-3">
-                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">纬度</span><span className="text-sm font-mono">{newPhoto.latitude?.toFixed(6)}</span></div>
-                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">经度</span><span className="text-sm font-mono">{newPhoto.longitude?.toFixed(6)}</span></div>
-                </div>
-                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">地址</span><span className="text-sm line-clamp-2">{newPhoto.address || '在右侧地图上点击选点'}</span></div>
               </div>
             </div>
 
@@ -818,19 +812,22 @@ function Map({ user, onLogout }: MapProps) {
 
       {/* 编辑照片模态框 */}
       {editingPhoto && (
-        <div className="photo-modal-overlay">
-          <div className="photo-modal-content w-full max-w-lg p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-900">编辑照片</h2>
+        <div className="fixed inset-0 z-[1100] bg-white flex h-screen w-screen overflow-hidden animate-fade-in">
+          <div className="w-[540px] flex flex-col border-r border-gray-100 bg-white">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 bg-gray-50">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">编辑照片</h2>
+                <p className="text-xs text-gray-500 mt-1">左侧编辑内容，右侧直接在地图上重新定位。</p>
+              </div>
               <button onClick={() => setEditingPhoto(null)} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-6 h-6" /></button>
             </div>
-            <div className="space-y-4">
-              <img src={editingPhoto.imagePath} alt={editingPhoto.title} className="w-full h-48 object-cover rounded-lg" />
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              <img src={editingPhoto.imagePath} alt={editingPhoto.title} className="w-full max-h-[34vh] object-contain rounded-xl bg-gray-100" />
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">所属相册</label>
                 <select value={editingPhoto.albumId || ''} onChange={(e) => setEditingPhoto(prev => prev ? { ...prev, albumId: e.target.value || null } : null)} className="input-field text-sm">
                   <option value="">未分类</option>
-                  {albums.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  {albums.map(a => (<option key={a.id} value={a.id}>{a.name}</option>))}
                 </select>
               </div>
               <div>
@@ -839,32 +836,31 @@ function Map({ user, onLogout }: MapProps) {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">描述</label>
-                <textarea value={editingPhoto.description} onChange={(e) => setEditingPhoto(prev => prev ? { ...prev, description: e.target.value } : null)} className="input-field h-20 resize-none" />
+                <textarea value={editingPhoto.description} onChange={(e) => setEditingPhoto(prev => prev ? { ...prev, description: e.target.value } : null)} className="input-field h-24 resize-none" />
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">纬度</span><span className="text-sm font-mono">{editingPhoto.latitude.toFixed(6)}</span></div>
+                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">经度</span><span className="text-sm font-mono">{editingPhoto.longitude.toFixed(6)}</span></div>
+              </div>
+              <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">地址 / 坐标</span><span className="text-sm break-all">{editingPhoto.address || '在右侧地图中重新选点'}</span></div>
               <button onClick={() => setShowAIGenerate(true)} className="w-full btn-secondary flex items-center justify-center">
                 <Sparkles className="w-4 h-4 mr-2" />重新生成AI文案
               </button>
-              <div className="flex space-x-3 pt-4">
-                <button onClick={() => setEditingPhoto(null)} className="flex-1 btn-secondary">取消</button>
-                <button onClick={handleUpdatePhoto} disabled={loading} className="flex-1 btn-primary flex items-center justify-center">
-                  {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : '保存'}
-                </button>
-              </div>
+            </div>
+            <div className="flex space-x-3 p-6 border-t border-gray-100 bg-gray-50">
+              <button onClick={() => setEditingPhoto(null)} className="flex-1 btn-secondary">取消</button>
+              <button onClick={handleUpdatePhoto} disabled={loading} className="flex-1 btn-primary flex items-center justify-center">
+                {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : '保存'}
+              </button>
             </div>
           </div>
+          <div className="flex-1 relative bg-gray-100">
+            <div className="absolute top-6 left-6 z-10 bg-white/90 backdrop-blur-sm px-4 py-2.5 rounded-xl shadow-xl border border-white/50">
+              <p className="text-sm font-bold text-gray-900 flex items-center"><MapPin className="w-4 h-4 mr-1.5 text-primary-600" />点击地图更新这张照片的位置</p>
+            </div>
+            <div className="select-map-container w-full h-full cursor-crosshair" />
+          </div>
         </div>
-      )}
-
-      {selectedPhoto && (
-        <PhotoModal
-          photo={selectedPhoto}
-          albums={albums}
-          onClose={() => setSelectedPhoto(null)}
-          onEdit={() => { setEditingPhoto(selectedPhoto); setSelectedPhoto(null); }}
-          onEditLocation={() => handleEditLocation(selectedPhoto)}
-          onDelete={() => handleDeletePhoto(selectedPhoto.id)}
-          onMoveToAlbum={handleMovePhotoToAlbum}
-        />
       )}
 
       {showAIGenerate && (

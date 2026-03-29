@@ -1,189 +1,226 @@
-import { X, Edit3, Trash2, MapPin, Sparkles, Calendar, Maximize2, Minimize2, Folder } from 'lucide-react';
+import { X, Edit3, Trash2, MapPin, Sparkles, Calendar, Folder, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react';
 import { Photo, Album } from '../types';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 interface PhotoModalProps {
   photo: Photo;
   albums: Album[];
+  currentIndex: number;
+  totalCount: number;
   onClose: () => void;
   onEdit: () => void;
   onEditLocation: () => void;
   onDelete: () => void;
   onMoveToAlbum: (albumId: string | null) => void;
+  onPrevious: () => void;
+  onNext: () => void;
 }
 
-function PhotoModal({ photo, albums, onClose, onEdit, onEditLocation, onDelete, onMoveToAlbum }: PhotoModalProps) {
-  const [isFullScreen, setIsFullScreen] = useState(false);
+function PhotoModal({
+  photo,
+  albums,
+  currentIndex,
+  totalCount,
+  onClose,
+  onEdit,
+  onEditLocation,
+  onDelete,
+  onMoveToAlbum,
+  onPrevious,
+  onNext,
+}: PhotoModalProps) {
+  const [browseMode, setBrowseMode] = useState<'details' | 'map'>('details');
 
-  if (isFullScreen) {
-    return (
-      <div className="fixed inset-0 bg-black z-[2000] flex items-center justify-center animate-in fade-in duration-300">
-        <img
-          src={photo.imagePath}
-          alt={photo.title}
-          className="max-w-full max-h-full object-contain cursor-zoom-out"
-          onClick={() => setIsFullScreen(false)}
-        />
-        <div className="absolute top-6 left-6 text-white bg-black/40 px-3 py-1.5 rounded-full backdrop-blur-sm">
-          <h2 className="text-lg font-bold">{photo.title}</h2>
-        </div>
-        <button
-          onClick={() => setIsFullScreen(false)}
-          className="absolute top-6 right-6 p-2.5 bg-white/10 text-white rounded-full hover:bg-white/20 transition-all backdrop-blur-sm border border-white/20"
-        >
-          <Minimize2 className="w-6 h-6" />
-        </button>
-      </div>
-    );
-  }
+  const albumName = useMemo(
+    () => albums.find(a => a.id === photo.albumId)?.name || '未分类',
+    [albums, photo.albumId],
+  );
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        onPrevious();
+      } else if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        onNext();
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        setBrowseMode('map');
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        onEdit();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, onEdit, onNext, onPrevious]);
+
+  useEffect(() => {
+    setBrowseMode('details');
+  }, [photo.id]);
 
   return (
-    <div className="photo-modal-overlay" onClick={onClose}>
+    <div className="fixed inset-0 z-[2000] bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="photo-modal-content max-w-4xl max-h-[95vh] w-full mx-4 overflow-hidden flex flex-col slide-up shadow-2xl border border-gray-100"
+        className="w-full h-full flex bg-white"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 照片区域 */}
-        <div className="relative flex-1 bg-gray-950 flex items-center justify-center overflow-hidden group">
+        <div className="flex-1 bg-gray-950 flex items-center justify-center p-6 lg:p-10 min-w-0">
           <img
             src={photo.imagePath}
             alt={photo.title}
-            className="max-w-full max-h-[70vh] object-contain cursor-zoom-in transition-transform duration-300 group-hover:scale-[1.01]"
-            onClick={() => setIsFullScreen(true)}
+            className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl bg-black"
           />
-          <div className="absolute bottom-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              onClick={() => setIsFullScreen(true)}
-              className="p-2 bg-black/60 text-white rounded-lg hover:bg-black/80 transition-all backdrop-blur-sm"
-              title="全屏预览"
-            >
-              <Maximize2 className="w-5 h-5" />
-            </button>
-          </div>
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 p-2 bg-black/40 text-white rounded-full hover:bg-black/60 transition-all backdrop-blur-sm border border-white/10"
-          >
-            <X className="w-6 h-6" />
-          </button>
         </div>
 
-        {/* 信息区域 */}
-        <div className="p-8 bg-white overflow-y-auto max-h-[40vh] border-t border-gray-50">
-          <div className="flex items-start justify-between mb-6">
-            <div className="flex-1 pr-8">
-              <h2 className="text-3xl font-extrabold text-gray-900 leading-tight mb-2">{photo.title}</h2>
-              <div className="flex flex-wrap items-center text-sm text-gray-500 gap-x-6 gap-y-2">
-                <span className="flex items-center bg-gray-50 px-2.5 py-1 rounded-full border border-gray-100">
-                  <Calendar className="w-3.5 h-3.5 mr-1.5 text-primary-500" />
-                  {new Date(photo.createdAt).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}
+        <div className="w-[460px] border-l border-gray-200 bg-white flex flex-col">
+          <div className="px-6 py-5 border-b border-gray-100 flex items-start justify-between gap-4">
+            <div>
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-[0.2em] mb-2">
+                照片 {currentIndex + 1} / {totalCount}
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 leading-tight">{photo.title}</h2>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500">
+                <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1">
+                  <Calendar className="w-3.5 h-3.5 mr-1" />
+                  {new Date(photo.createdAt).toLocaleDateString('zh-CN')}
                 </span>
-                {photo.address && (
-                  <span className="flex items-center bg-gray-50 px-2.5 py-1 rounded-full border border-gray-100">
-                    <MapPin className="w-3.5 h-3.5 mr-1.5 text-red-500" />
-                    {photo.address}
-                  </span>
-                )}
-                <span className="flex items-center bg-gray-50 px-2.5 py-1 rounded-full border border-gray-100">
-                  <Folder className="w-3.5 h-3.5 mr-1.5 text-orange-500" />
-                  {albums.find(a => a.id === photo.albumId)?.name || '未分类'}
+                <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1">
+                  <Folder className="w-3.5 h-3.5 mr-1" />
+                  {albumName}
                 </span>
               </div>
             </div>
-            <div className="flex items-center space-x-2 shrink-0">
-              <button
-                onClick={onEdit}
-                className="p-3 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-xl transition-all border border-gray-100 hover:border-primary-100"
-                title="编辑信息"
+            <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100 text-gray-500">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="px-6 py-3 border-b border-gray-100 flex flex-wrap gap-2 text-xs">
+            <button
+              onClick={() => setBrowseMode('map')}
+              className={`inline-flex items-center rounded-lg px-3 py-2 font-medium transition-colors ${browseMode === 'map' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            >
+              <ArrowLeft className="w-3.5 h-3.5 mr-1" />
+              左键看地图布局
+            </button>
+            <button
+              onClick={onEdit}
+              className="inline-flex items-center rounded-lg bg-gray-100 px-3 py-2 font-medium text-gray-700 hover:bg-gray-200"
+            >
+              <ArrowRight className="w-3.5 h-3.5 mr-1" />
+              右键进入编辑
+            </button>
+            <button
+              onClick={onPrevious}
+              className="inline-flex items-center rounded-lg bg-gray-100 px-3 py-2 font-medium text-gray-700 hover:bg-gray-200"
+            >
+              <ArrowUp className="w-3.5 h-3.5 mr-1" />
+              上一张
+            </button>
+            <button
+              onClick={onNext}
+              className="inline-flex items-center rounded-lg bg-gray-100 px-3 py-2 font-medium text-gray-700 hover:bg-gray-200"
+            >
+              <ArrowDown className="w-3.5 h-3.5 mr-1" />
+              下一张
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-5">
+            {browseMode === 'map' ? (
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                  <div className="flex items-center text-sm font-semibold text-gray-900 mb-2">
+                    <MapPin className="w-4 h-4 mr-2 text-primary-600" />
+                    地图联动浏览
+                  </div>
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    当前主地图已定位到这张照片的位置。关闭弹窗后可直接继续在地图中查看；按右方向键可立即进入编辑布局调整位置与信息。
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">纬度</span>
+                    <span className="font-mono text-gray-900">{photo.latitude.toFixed(6)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">经度</span>
+                    <span className="font-mono text-gray-900">{photo.longitude.toFixed(6)}</span>
+                  </div>
+                  <button
+                    onClick={onEditLocation}
+                    className="w-full btn-secondary text-sm"
+                  >
+                    在编辑视图中重新选点
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {photo.description && (
+                  <div>
+                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">照片描述</h3>
+                    <p className="text-gray-700 leading-7">{photo.description}</p>
+                  </div>
+                )}
+
+                {photo.aiGeneratedText && (
+                  <div className="rounded-2xl border border-primary-100 bg-primary-50 p-4">
+                    <div className="flex items-center mb-2 text-primary-700 font-semibold text-sm">
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      AI 文案
+                    </div>
+                    <p className="text-gray-700 leading-7">{photo.aiGeneratedText}</p>
+                  </div>
+                )}
+
+                <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
+                  <div className="flex items-start gap-2 text-sm text-gray-700">
+                    <MapPin className="w-4 h-4 mt-0.5 text-red-500" />
+                    <span>{photo.address || '未设置地址'}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="rounded-xl bg-gray-50 p-3">
+                      <div className="text-[10px] text-gray-400 uppercase mb-1">纬度</div>
+                      <div className="font-mono text-gray-900">{photo.latitude.toFixed(6)}</div>
+                    </div>
+                    <div className="rounded-xl bg-gray-50 p-3">
+                      <div className="text-[10px] text-gray-400 uppercase mb-1">经度</div>
+                      <div className="font-mono text-gray-900">{photo.longitude.toFixed(6)}</div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-4">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">所属相册</h3>
+              <select
+                value={photo.albumId || ''}
+                onChange={(e) => onMoveToAlbum(e.target.value || null)}
+                className="w-full bg-white border border-gray-200 text-sm rounded-xl px-3 py-2 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-200"
               >
-                <Edit3 className="w-5.5 h-5.5" />
-              </button>
-              <button
-                onClick={onDelete}
-                className="p-3 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-gray-100 hover:border-red-100"
-                title="永久删除"
-              >
-                <Trash2 className="w-5.5 h-5.5" />
-              </button>
+                <option value="">未分类</option>
+                {albums.map(album => (
+                  <option key={album.id} value={album.id}>{album.name}</option>
+                ))}
+              </select>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="md:col-span-2 space-y-6">
-              {/* 描述 */}
-              {photo.description && (
-                <div>
-                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center">
-                    <span className="w-4 h-[1px] bg-gray-200 mr-2"></span>
-                    背景描述
-                  </h3>
-                  <p className="text-gray-700 leading-relaxed text-lg italic pl-4 border-l-2 border-primary-100">{photo.description}</p>
-                </div>
-              )}
-
-              {/* AI生成文案 */}
-              {photo.aiGeneratedText && (
-                <div className="bg-gradient-to-br from-primary-50/50 to-purple-50/50 rounded-2xl p-6 border border-primary-50">
-                  <div className="flex items-center mb-4">
-                    <div className="p-1.5 bg-primary-100 rounded-lg mr-3 shadow-sm shadow-primary-200">
-                      <Sparkles className="w-4 h-4 text-primary-600" />
-                    </div>
-                    <h3 className="text-sm font-bold text-primary-800">AI 灵感文案</h3>
-                  </div>
-                  <p className="text-gray-800 leading-relaxed text-lg font-medium font-serif">{photo.aiGeneratedText}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-6">
-              {/* 相册管理 */}
-              <div className="bg-gray-50/80 rounded-2xl p-5 border border-gray-100 backdrop-blur-sm">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center">
-                  <Folder className="w-3 h-3 mr-1.5" />
-                  所属相册
-                </h3>
-                <div className="relative">
-                  <select
-                    value={photo.albumId || ''}
-                    onChange={(e) => onMoveToAlbum(e.target.value || null)}
-                    className="w-full bg-white border border-gray-200 text-sm rounded-xl px-3 py-2 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-200 transition-all appearance-none cursor-pointer"
-                  >
-                    <option value="">未分类 (默认)</option>
-                    {albums.map(album => (
-                      <option key={album.id} value={album.id}>{album.name}</option>
-                    ))}
-                  </select>
-                  <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-gray-400">
-                    <Maximize2 className="w-3 h-3 rotate-45" />
-                  </div>
-                </div>
-              </div>
-
-              {/* 坐标信息 */}
-              <div className="bg-gray-50/80 rounded-2xl p-5 border border-gray-100 backdrop-blur-sm">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">地理坐标</h3>
-                  <button
-                    onClick={onEditLocation}
-                    className="text-[10px] font-bold text-primary-600 hover:text-primary-700 hover:bg-primary-50 px-2 py-0.5 rounded transition-all flex items-center"
-                    title="在地图上重新选点"
-                  >
-                    <Edit3 className="w-2.5 h-2.5 mr-1" />
-                    重新选点
-                  </button>
-                </div>
-                <div className="flex flex-col space-y-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-400">纬度 (LAT)</span>
-                    <span className="text-gray-900 font-mono font-medium">{photo.latitude.toFixed(6)}°</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-400">经度 (LNG)</span>
-                    <span className="text-gray-900 font-mono font-medium">{photo.longitude.toFixed(6)}°</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+          <div className="px-6 py-4 border-t border-gray-100 grid grid-cols-2 gap-3">
+            <button onClick={onEdit} className="btn-primary flex items-center justify-center">
+              <Edit3 className="w-4 h-4 mr-2" />编辑
+            </button>
+            <button onClick={onDelete} className="btn-secondary text-red-600 border-red-200 hover:bg-red-50 flex items-center justify-center">
+              <Trash2 className="w-4 h-4 mr-2" />删除
+            </button>
           </div>
         </div>
       </div>

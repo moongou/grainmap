@@ -77,14 +77,21 @@ class AppDatabase {
     } else if (existing.id !== id) {
       // 用户存在但 ID 不对 (可能是之前注册的)，为了确保 shortcut 工作正常，我们统一更新 ID
       console.log('Superuser exists but with different ID. Updating ID to canonical one.')
-      this.db.transaction(() => {
-        if (!this.db) return
-        this.db.prepare('PRAGMA foreign_keys = OFF;').run()
-        this.db.prepare('UPDATE users SET id = ? WHERE username = ?').run(id, username)
-        this.db.prepare('UPDATE photos SET user_id = ? WHERE user_id = ?').run(id, existing.id)
-        this.db.prepare('UPDATE ai_configs SET user_id = ? WHERE user_id = ?').run(id, existing.id)
+
+      // 注意：PRAGMA foreign_keys = OFF 必须在事务之外执行才能在某些 SQLite 版本生效
+      this.db.prepare('PRAGMA foreign_keys = OFF;').run()
+
+      try {
+        this.db.transaction(() => {
+          if (!this.db) return
+          this.db.prepare('UPDATE users SET id = ? WHERE username = ?').run(id, username)
+          this.db.prepare('UPDATE photos SET user_id = ? WHERE user_id = ?').run(id, existing.id)
+          this.db.prepare('UPDATE ai_configs SET user_id = ? WHERE user_id = ?').run(id, existing.id)
+          this.db.prepare('UPDATE albums SET user_id = ? WHERE user_id = ?').run(id, existing.id)
+        })()
+      } finally {
         this.db.prepare('PRAGMA foreign_keys = ON;').run()
-      })()
+      }
     }
   }
 
@@ -376,6 +383,7 @@ class AppDatabase {
     return {
       id: row.id,
       userId: row.user_id,
+      albumId: row.album_id || null,
       title: row.title,
       description: row.description,
       imagePath: row.image_path,

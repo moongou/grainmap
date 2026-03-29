@@ -27,13 +27,19 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 const createWindow = () => {
+  const preloadPath = path.join(app.getAppPath(), 'dist-electron', 'preload.js')
+  console.log('Preload Path:', preloadPath)
+  if (!fs.existsSync(preloadPath)) {
+    console.error('CRITICAL: Preload script NOT found at', preloadPath)
+  }
+
   const mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1200,
     minHeight: 700,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true, // Keep secure but use custom protocol
@@ -77,6 +83,18 @@ const createWindow = () => {
 }
 
 app.whenReady().then(async () => {
+  const isDev = process.env.VITE_DEV_SERVER_URL || !app.isPackaged
+
+  if (isDev) {
+    try {
+      const { default: installExtension, REACT_DEVELOPER_TOOLS } = await import('electron-devtools-installer')
+      await installExtension(REACT_DEVELOPER_TOOLS, { loadExtensionOptions: { allowFileAccess: true } })
+      console.log('React DevTools installed')
+    } catch (e) {
+      console.error('Failed to install React DevTools:', e)
+    }
+  }
+
   const { default: Store } = await (eval('import("electron-store")') as Promise<any>)
   store = new Store()
 

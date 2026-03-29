@@ -33,6 +33,11 @@ function Login({ onLogin }: LoginProps) {
       return;
     }
 
+    if (!window.electronAPI) {
+      setError('环境错误：未检测到 Electron 接口');
+      return;
+    }
+
     setLoading(true);
 
     try {

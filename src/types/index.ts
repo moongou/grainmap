@@ -1,3 +1,5 @@
+export type MapProvider = 'tencent' | 'osm';
+
 export interface User {
   id: string;
   username: string;
@@ -48,9 +50,4 @@ export interface MapMarker {
   title: string;
   imagePath: string;
   photo: Photo;
-}
-
-export interface AMapPosition {
-  lng: number;
-  lat: number;
 }
