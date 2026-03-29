@@ -110,20 +110,22 @@ function Map({ user, onLogout }: MapProps) {
   };
 
   
-  // 创建自定义标记图标
-  const createMarkerIcon = (photo: Photo) => {
+  // 创建高精度对标点 (红色“米”字线)
+  const createMarkerIcon = (_photo: Photo) => {
     const iconHtml = `
-      <div class="custom-marker">
-        <img src="${photo.imagePath}" class="marker-image" />
-        <div class="marker-pin"></div>
+      <div class="precision-target">
+        <div class="target-line vertical"></div>
+        <div class="target-line horizontal"></div>
+        <div class="target-line diagonal-1"></div>
+        <div class="target-line diagonal-2"></div>
+        <div class="target-center"></div>
       </div>
     `;
     return L.divIcon({
       html: iconHtml,
-      className: 'custom-leaflet-marker',
-      iconSize: [50, 60],
-      iconAnchor: [25, 60],
-      popupAnchor: [0, -60],
+      className: 'custom-leaflet-target',
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
     });
   };
 
@@ -361,12 +363,18 @@ function Map({ user, onLogout }: MapProps) {
 
     // Get current center point in pixels to calculate offset
     const targetPoint = map.project([latitude, longitude], map.getZoom());
-    // Move the thumbnail center slightly away (e.g., 100px offset roughly represents a few cm)
-    const thumbnailPoint = targetPoint.add(L.point(120, -120));
+
+    // 随机偏移位置 (2-3cm 左右，约 80-150px)，不固定方向
+    const angle = Math.random() * Math.PI * 2;
+    const distance = 120 + Math.random() * 80;
+    const offset = L.point(Math.cos(angle) * distance, Math.sin(angle) * distance);
+
+    const thumbnailPoint = targetPoint.add(offset);
     const thumbnailLatLng = map.unproject(thumbnailPoint, map.getZoom());
 
-    // Create a curved leader line (using a quadratic bezier approach with a midpoint)
-    const midPoint = targetPoint.add(L.point(80, 0));
+    // Create a curved leader line (using a midpoint for a slight curve)
+    const midOffset = L.point(Math.cos(angle) * (distance * 0.6), Math.sin(angle + 0.3) * (distance * 0.4));
+    const midPoint = targetPoint.add(midOffset);
     const midLatLng = map.unproject(midPoint, map.getZoom());
 
     const leaderLine = L.polyline([
@@ -374,29 +382,29 @@ function Map({ user, onLogout }: MapProps) {
       [midLatLng.lat, midLatLng.lng],
       [thumbnailLatLng.lat, thumbnailLatLng.lng]
     ], {
-      color: '#3b82f6',
+      color: '#1e3a8a', // 深蓝色
       weight: 2,
-      dashArray: '5, 5',
+      dashArray: '4, 6', // 虚线
       opacity: 0.8,
       lineJoin: 'round'
     }).addTo(previewLayerRef.current);
 
-    // Create large thumbnail icon (5x size, original is ~50px, so 250px)
+    // Create large thumbnail icon (1.6x larger than previous ~200px -> ~320px)
     const largeIcon = L.divIcon({
       className: 'preview-thumbnail-marker',
       html: `
         <div class="relative group">
-          <div class="absolute -inset-2 bg-white/40 blur-lg rounded-2xl"></div>
-          <div class="relative bg-white p-2 rounded-2xl shadow-2xl border-4 border-white overflow-hidden transform transition-transform group-hover:scale-105">
-            <img src="${imagePath}" class="w-48 h-48 object-cover rounded-lg shadow-inner" />
-            <div class="absolute bottom-2 right-2 bg-primary-600 text-white p-1.5 rounded-full shadow-lg">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-map-pin"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+          <div class="absolute -inset-3 bg-white/30 blur-xl rounded-2xl"></div>
+          <div class="relative bg-white p-2.5 rounded-2xl shadow-2xl border-[5px] border-white overflow-hidden transform transition-transform">
+            <img src="${imagePath}" class="w-[300px] h-[300px] object-cover rounded-lg shadow-inner" />
+            <div class="absolute bottom-3 right-3 bg-primary-600 text-white p-2 rounded-full shadow-lg">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-map-pin"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
             </div>
           </div>
         </div>
       `,
-      iconSize: [200, 200],
-      iconAnchor: [100, 100]
+      iconSize: [320, 320],
+      iconAnchor: [160, 160]
     });
 
     L.marker([thumbnailLatLng.lat, thumbnailLatLng.lng], {
