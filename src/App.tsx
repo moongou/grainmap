@@ -102,17 +102,7 @@ function App() {
           }
         />
         <Route
-          path="/browse"
-          element={
-            user ? (
-              <BrowsePage user={user} />
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-        <Route
-          path="/browse/:photoId"
+          path="/browse/:photoId?"
           element={
             user ? (
               <BrowsePage user={user} />

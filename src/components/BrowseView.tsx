@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { X, Edit3, MapPin, Sparkles, ChevronLeft, ChevronRight, Maximize2, Shuffle, ArrowUpDown, SortAsc } from 'lucide-react';
+import { X, Edit3, MapPin, Sparkles, ChevronLeft, ChevronRight, Maximize2, Shuffle, ArrowUpDown, SortAsc, Home } from 'lucide-react';
 import L, { TileLayer } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Photo, Album } from '../types';
@@ -312,13 +312,6 @@ export default function BrowseView({
 
               <div className="absolute top-3 right-3 flex items-center gap-2">
                 <button
-                  onClick={() => setPhotoPanelSide(side => side === 'left' ? 'right' : 'left')}
-                  className="p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white transition-colors"
-                  title="切换照片与地图位置 (S)"
-                >
-                  <ArrowUpDown className="w-4 h-4" />
-                </button>
-                <button
                   onClick={() => setIsFullscreen(true)}
                   className="p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white transition-colors"
                   title="全屏 (F)"
@@ -341,13 +334,13 @@ export default function BrowseView({
                 <ChevronRight className="w-6 h-6" />
               </button>
 
-              {/* Map Expand Button */}
+              {/* Swap Layout Button */}
               <button
-                onClick={() => setMapExpanded(exp => !exp)}
+                onClick={() => setIsMapMain(m => !m)}
                 className="absolute bottom-4 left-4 p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white transition-colors"
-                title="展开地图 (M)"
+                title="切换地图与照片 (CTRL+↑)"
               >
-                <MapPin className="w-5 h-5" />
+                <ArrowUpDown className="w-5 h-5" />
               </button>
             </>
           )}
@@ -442,12 +435,10 @@ export default function BrowseView({
                           <Edit3 className="w-3.5 h-3.5" />编辑
                         </button>
                         <button
-                          onClick={() => setMapExpanded(exp => !exp)}
-                          className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
-                            mapExpanded ? 'border-primary-200 bg-primary-50 text-primary-700' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-                          }`}
+                          onClick={() => setIsMapMain(m => !m)}
+                          className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                         >
-                          {mapExpanded ? '收起地图' : '放大地图'}
+                          切换主视图
                         </button>
                       </div>
                     </div>
@@ -463,22 +454,29 @@ export default function BrowseView({
       <div className="h-11 border-t border-gray-200 bg-gray-50 flex items-center justify-between px-4 flex-shrink-0">
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setMapExpanded(exp => !exp)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              mapExpanded ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-            title="展开/收起地图 (M)"
+            onClick={onClose}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-600 hover:bg-primary-700 rounded-lg text-xs font-medium text-white transition-colors shadow-sm"
+            title="返回主界面 (ESC)"
           >
-            <MapPin className="w-3.5 h-3.5" />
-            <span>{mapExpanded ? '收起地图' : '展开地图'}</span>
+            <Home className="w-3.5 h-3.5" />
+            <span>主页</span>
+          </button>
+
+          <button
+            onClick={() => setIsMapMain(m => !m)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-medium text-gray-700 transition-colors"
+            title="切换主视图 (CTRL+↑)"
+          >
+            <ArrowUpDown className="w-3.5 h-3.5" />
+            <span>切换主视图</span>
           </button>
 
           <button
             onClick={() => setPhotoPanelSide(side => side === 'left' ? 'right' : 'left')}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-medium text-gray-700 transition-colors"
-            title="切换照片与地图位置 (S)"
+            title="切换布局 (S)"
           >
-            <ArrowUpDown className="w-3.5 h-3.5" />
+            <Maximize2 className="w-3.5 h-3.5" />
             <span>切换布局</span>
           </button>
 
@@ -531,8 +529,8 @@ export default function BrowseView({
             切换布局
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="px-1.5 py-0.5 bg-gray-200 rounded text-[9px]">M</kbd>
-            展开地图
+            <kbd className="px-1.5 py-0.5 bg-gray-200 rounded text-[9px]">CTRL+↑</kbd>
+            切换主视图
           </span>
           <span className="flex items-center gap-1">
             <kbd className="px-1.5 py-0.5 bg-gray-200 rounded text-[9px]">F</kbd>

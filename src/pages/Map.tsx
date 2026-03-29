@@ -75,6 +75,9 @@ function Map({ user, onLogout }: MapProps) {
   const [mapProvider, setMapProvider] = useState<MapProvider>('tencent');
   const [isEditing, setIsEditing] = useState(false);
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
+  const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
+
+  const previewLayerRef = useRef<L.LayerGroup | null>(null);
 
   // 添加照片表单状态 (支持多张导入)
   const [newPhoto, setNewPhoto] = useState<Partial<Photo>>({
@@ -330,13 +333,78 @@ function Map({ user, onLogout }: MapProps) {
       });
 
       marker.on('click', () => {
-        navigate(`/browse/${photo.id}`);
+        navigate(`/browse/${photo.id}?albumId=${selectedAlbumId || ''}`);
       });
 
       marker.addTo(mapRef.current!);
       markersRef.current.push(marker);
     });
   }, [photos, selectedAlbumId]);
+
+  // Handle preview thumbnail and leader line
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    if (previewLayerRef.current) {
+      previewLayerRef.current.clearLayers();
+    } else {
+      previewLayerRef.current = L.layerGroup().addTo(mapRef.current);
+    }
+
+    if (!previewPhoto) return;
+
+    const map = mapRef.current;
+    const { latitude, longitude, imagePath } = previewPhoto;
+
+    // fly to location
+    map.flyTo([latitude, longitude], 15);
+
+    // Get current center point in pixels to calculate offset
+    const targetPoint = map.project([latitude, longitude], map.getZoom());
+    // Move the thumbnail center slightly away (e.g., 100px offset roughly represents a few cm)
+    const thumbnailPoint = targetPoint.add(L.point(120, -120));
+    const thumbnailLatLng = map.unproject(thumbnailPoint, map.getZoom());
+
+    // Create a curved leader line (using a quadratic bezier approach with a midpoint)
+    const midPoint = targetPoint.add(L.point(80, 0));
+    const midLatLng = map.unproject(midPoint, map.getZoom());
+
+    const leaderLine = L.polyline([
+      [latitude, longitude],
+      [midLatLng.lat, midLatLng.lng],
+      [thumbnailLatLng.lat, thumbnailLatLng.lng]
+    ], {
+      color: '#3b82f6',
+      weight: 2,
+      dashArray: '5, 5',
+      opacity: 0.8,
+      lineJoin: 'round'
+    }).addTo(previewLayerRef.current);
+
+    // Create large thumbnail icon (5x size, original is ~50px, so 250px)
+    const largeIcon = L.divIcon({
+      className: 'preview-thumbnail-marker',
+      html: `
+        <div class="relative group">
+          <div class="absolute -inset-2 bg-white/40 blur-lg rounded-2xl"></div>
+          <div class="relative bg-white p-2 rounded-2xl shadow-2xl border-4 border-white overflow-hidden transform transition-transform group-hover:scale-105">
+            <img src="${imagePath}" class="w-48 h-48 object-cover rounded-lg shadow-inner" />
+            <div class="absolute bottom-2 right-2 bg-primary-600 text-white p-1.5 rounded-full shadow-lg">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-map-pin"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+            </div>
+          </div>
+        </div>
+      `,
+      iconSize: [200, 200],
+      iconAnchor: [100, 100]
+    });
+
+    L.marker([thumbnailLatLng.lat, thumbnailLatLng.lng], {
+      icon: largeIcon,
+      zIndexOffset: 1000
+    }).addTo(previewLayerRef.current);
+
+  }, [previewPhoto]);
 
   const loadPhotos = async () => {
     try {
@@ -358,7 +426,7 @@ function Map({ user, onLogout }: MapProps) {
 
 
   const openPhoto = (photo: Photo) => {
-    navigate(`/browse/${photo.id}`);
+    setPreviewPhoto(photo);
   };
 
   const handleSelectImage = async () => {
@@ -607,7 +675,7 @@ function Map({ user, onLogout }: MapProps) {
 
         {/* 操作按钮 */}
         <div className="p-4 border-b border-gray-200 space-y-2">
-          <button onClick={() => navigate('/browse')} className="w-full btn-secondary flex items-center justify-center">
+          <button onClick={() => navigate(`/browse?albumId=${selectedAlbumId || ''}`)} className="w-full btn-secondary flex items-center justify-center">
             <Eye className="w-4 h-4 mr-2" />
             浏览模式
           </button>

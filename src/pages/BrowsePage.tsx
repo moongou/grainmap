@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { User, Photo, Album } from '../types';
 import BrowseView from '../components/BrowseView';
 
@@ -10,6 +10,8 @@ interface BrowsePageProps {
 export default function BrowsePage({ user }: BrowsePageProps) {
   const navigate = useNavigate();
   const { photoId } = useParams<{ photoId?: string }>();
+  const [searchParams] = useSearchParams();
+  const albumId = searchParams.get('albumId');
 
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -25,7 +27,13 @@ export default function BrowsePage({ user }: BrowsePageProps) {
         window.electronAPI.db.getPhotosByUser(user.id),
         window.electronAPI.db.getAlbumsByUser(user.id),
       ]);
-      setPhotos(userPhotos);
+
+      // Filter by albumId if provided
+      const filteredPhotos = albumId
+        ? userPhotos.filter(p => p.albumId === albumId)
+        : userPhotos;
+
+      setPhotos(filteredPhotos);
       setAlbums(userAlbums);
     } catch (error) {
       console.error('Error loading data:', error);
