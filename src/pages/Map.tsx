@@ -544,7 +544,6 @@ function Map({ user, onLogout }: MapProps) {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
-      {/* 侧边栏 */}
       <div className="sidebar flex flex-col">
         {/* 头部 */}
         <div className="p-4 border-b border-gray-200">
@@ -702,7 +701,7 @@ function Map({ user, onLogout }: MapProps) {
       {showAddModal && (
         <div className="fixed inset-0 z-[1000] bg-white flex h-screen w-screen overflow-hidden animate-fade-in">
           <div className="w-[520px] flex flex-col h-full border-r border-gray-100 bg-white">
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-gray-50">
               <div>
                 <h2 className="text-xl font-bold text-gray-900">{isEditing ? '编辑照片' : '添加照片'}</h2>
                 <p className="text-xs text-gray-500 mt-1">
@@ -715,15 +714,17 @@ function Map({ user, onLogout }: MapProps) {
               <button onClick={() => { setShowAddModal(false); resetAddForm(); }} className="p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-200"><X className="w-6 h-6" /></button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">选择照片</label>
                 {selectedImages.length > 0 ? (
-                  <div className="relative">
-                    <img src={selectedImages[currentImportIndex]?.data} alt="Selected" className="w-full max-h-[36vh] object-contain rounded-xl shadow-sm bg-gray-100" />
-                    {!isEditing && (
-                      <button onClick={() => { setSelectedImages([]); }} className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 transition-colors"><X className="w-4 h-4" /></button>
-                    )}
+                  <div className="flex justify-center">
+                    <div className="relative w-full max-w-[320px]">
+                      <img src={selectedImages[currentImportIndex]?.data} alt="Selected" className="mx-auto h-40 w-full object-contain rounded-xl shadow-sm bg-gray-100" />
+                      {!isEditing && (
+                        <button onClick={() => { setSelectedImages([]); }} className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 transition-colors"><X className="w-4 h-4" /></button>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <button onClick={handleSelectImage} className="w-full aspect-video border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center text-gray-500 hover:border-primary-500 hover:text-primary-500 hover:bg-primary-50 transition-all">
@@ -733,7 +734,7 @@ function Map({ user, onLogout }: MapProps) {
                 )}
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">所属相册</label>
                   <select
@@ -753,11 +754,10 @@ function Map({ user, onLogout }: MapProps) {
                   <label className="block text-sm font-medium text-gray-700 mb-1">描述</label>
                   <textarea value={newPhoto.description} onChange={(e) => setNewPhoto(prev => ({ ...prev, description: e.target.value }))} className="input-field h-24 resize-none" placeholder="输入照片描述" />
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">纬度</span><span className="text-sm font-mono">{newPhoto.latitude?.toFixed(6)}</span></div>
-                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">经度</span><span className="text-sm font-mono">{newPhoto.longitude?.toFixed(6)}</span></div>
+                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                  <span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">地址 / 坐标</span>
+                  <span className="text-sm break-all">{newPhoto.address || '在右侧地图上点击选点'}</span>
                 </div>
-                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">地址 / 坐标</span><span className="text-sm break-all">{newPhoto.address || '在右侧地图上点击选点'}</span></div>
                 <button onClick={() => setShowAIGenerate(true)} className="w-full py-2.5 px-4 bg-primary-50 text-primary-600 rounded-lg flex items-center justify-center font-medium hover:bg-primary-100 transition-colors">
                   <Sparkles className="w-4 h-4 mr-2" />使用 AI 生成文案
                 </button>
@@ -770,7 +770,7 @@ function Map({ user, onLogout }: MapProps) {
               </div>
             </div>
 
-            <div className="p-6 border-t border-gray-100 flex space-x-3 bg-gray-50">
+            <div className="p-5 border-t border-gray-100 flex space-x-3 bg-gray-50">
               <button onClick={() => { setShowAddModal(false); resetAddForm(); }} className="flex-1 py-3 px-4 bg-white border border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors">取消</button>
               <button onClick={handleAddPhoto} disabled={loading || selectedImages.length === 0} className="flex-1 py-3 px-4 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center shadow-lg shadow-primary-100">
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (currentImportIndex < selectedImages.length - 1 ? '保存并继续' : '保存照片')}
@@ -814,15 +814,17 @@ function Map({ user, onLogout }: MapProps) {
       {editingPhoto && (
         <div className="fixed inset-0 z-[1100] bg-white flex h-screen w-screen overflow-hidden animate-fade-in">
           <div className="w-[540px] flex flex-col border-r border-gray-100 bg-white">
-            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 bg-gray-50">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gray-50">
               <div>
                 <h2 className="text-xl font-bold text-gray-900">编辑照片</h2>
                 <p className="text-xs text-gray-500 mt-1">左侧编辑内容，右侧直接在地图上重新定位。</p>
               </div>
               <button onClick={() => setEditingPhoto(null)} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-6 h-6" /></button>
             </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              <img src={editingPhoto.imagePath} alt={editingPhoto.title} className="w-full max-h-[34vh] object-contain rounded-xl bg-gray-100" />
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              <div className="flex justify-center">
+                <img src={editingPhoto.imagePath} alt={editingPhoto.title} className="h-40 w-full max-w-[340px] object-contain rounded-xl bg-gray-100" />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">所属相册</label>
                 <select value={editingPhoto.albumId || ''} onChange={(e) => setEditingPhoto(prev => prev ? { ...prev, albumId: e.target.value || null } : null)} className="input-field text-sm">
@@ -838,16 +840,15 @@ function Map({ user, onLogout }: MapProps) {
                 <label className="block text-sm font-medium text-gray-700 mb-1">描述</label>
                 <textarea value={editingPhoto.description} onChange={(e) => setEditingPhoto(prev => prev ? { ...prev, description: e.target.value } : null)} className="input-field h-24 resize-none" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">纬度</span><span className="text-sm font-mono">{editingPhoto.latitude.toFixed(6)}</span></div>
-                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">经度</span><span className="text-sm font-mono">{editingPhoto.longitude.toFixed(6)}</span></div>
+              <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                <span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">地址 / 坐标</span>
+                <span className="text-sm break-all">{editingPhoto.address || '在右侧地图中重新选点'}</span>
               </div>
-              <div className="bg-gray-50 p-3 rounded-lg border border-gray-200"><span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">地址 / 坐标</span><span className="text-sm break-all">{editingPhoto.address || '在右侧地图中重新选点'}</span></div>
               <button onClick={() => setShowAIGenerate(true)} className="w-full btn-secondary flex items-center justify-center">
                 <Sparkles className="w-4 h-4 mr-2" />重新生成AI文案
               </button>
             </div>
-            <div className="flex space-x-3 p-6 border-t border-gray-100 bg-gray-50">
+            <div className="flex space-x-3 p-5 border-t border-gray-100 bg-gray-50">
               <button onClick={() => setEditingPhoto(null)} className="flex-1 btn-secondary">取消</button>
               <button onClick={handleUpdatePhoto} disabled={loading} className="flex-1 btn-primary flex items-center justify-center">
                 {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : '保存'}

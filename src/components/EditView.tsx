@@ -223,30 +223,6 @@ export default function EditView({
             />
           </div>
 
-          {/* Coordinates */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
-              <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">纬度</span>
-              <input
-                type="number"
-                step="0.000001"
-                value={editData.latitude}
-                onChange={(e) => setEditData(prev => ({ ...prev, latitude: parseFloat(e.target.value) || 0 }))}
-                className="w-full bg-transparent text-sm font-mono outline-none"
-              />
-            </div>
-            <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
-              <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">经度</span>
-              <input
-                type="number"
-                step="0.000001"
-                value={editData.longitude}
-                onChange={(e) => setEditData(prev => ({ ...prev, longitude: parseFloat(e.target.value) || 0 }))}
-                className="w-full bg-transparent text-sm font-mono outline-none"
-              />
-            </div>
-          </div>
-
           {/* Address */}
           <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
             <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">地址 / 坐标</span>

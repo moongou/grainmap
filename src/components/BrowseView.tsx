@@ -63,6 +63,8 @@ export default function BrowseView({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [photoPanelSide, setPhotoPanelSide] = useState<'left' | 'right'>('left');
+  const [isMapMain, setIsMapMain] = useState(false);
 
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -149,7 +151,7 @@ export default function BrowseView({
         mapInstanceRef.current = null;
       }
     };
-  }, [isFullscreen, mapProvider, buildTileLayer]);
+  }, [isFullscreen, mapProvider, buildTileLayer, isMapMain]);
 
   // Update map when photo changes
   useEffect(() => {
@@ -166,17 +168,54 @@ export default function BrowseView({
         icon: createMarkerIcon(displayPhoto),
       }).addTo(mapInstanceRef.current);
     }
-  }, [displayPhoto]);
+  }, [displayPhoto, isMapMain]);
+
+  // Handle layout changes and map resize
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    setTimeout(() => {
+      mapInstanceRef.current?.invalidateSize();
+    }, 300); // Wait for transition duration
+  }, [isMapMain, isFullscreen, photoPanelSide]);
+
+  const handlePrevious = useCallback(() => {
+    const newIndex = (currentIndex - 1 + photos.length) % photos.length;
+    setCurrentIndex(newIndex);
+  }, [currentIndex, photos.length]);
+
+  const handleNext = useCallback(() => {
+    const newIndex = (currentIndex + 1) % photos.length;
+    setCurrentIndex(newIndex);
+  }, [currentIndex, photos.length]);
 
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowUp') {
+      const target = e.target as HTMLElement | null;
+      const isTypingTarget = !!target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+      );
+
+      if (isTypingTarget) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          onClose();
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowLeft') {
         e.preventDefault();
         handlePrevious();
-      } else if (e.key === 'ArrowDown') {
+      } else if (e.key === 'ArrowRight') {
         e.preventDefault();
         handleNext();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+        setIsMapMain(m => !m);
       } else if (e.key === 'Escape') {
         e.preventDefault();
         if (isFullscreen) {
@@ -190,12 +229,15 @@ export default function BrowseView({
       } else if (e.key === 'm' || e.key === 'M') {
         e.preventDefault();
         setMapExpanded(exp => !exp);
+      } else if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        setPhotoPanelSide(side => side === 'left' ? 'right' : 'left');
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentIndex, isFullscreen, onClose]);
+  }, [isFullscreen, onClose, handlePrevious, handleNext]);
 
   // Scroll thumbnail into view
   useEffect(() => {
@@ -207,28 +249,18 @@ export default function BrowseView({
     }
   }, [currentIndex]);
 
-  const handlePrevious = () => {
-    const newIndex = (currentIndex - 1 + photos.length) % photos.length;
-    setCurrentIndex(newIndex);
-  };
-
-  const handleNext = () => {
-    const newIndex = (currentIndex + 1) % photos.length;
-    setCurrentIndex(newIndex);
-  };
-
   const handleThumbnailClick = (index: number) => {
     setCurrentIndex(index);
   };
 
-  // Layout: Left = photo (85%), Right top = map, Right bottom = info
-  const photoPanelWidth = isFullscreen ? 'w-full' : 'w-[85%]';
-  const mapPanelWidth = isFullscreen ? 'w-0' : 'w-[15%]';
+  // Layout: Left = photo (70%), Right top = map, Right bottom = info
+  const photoPanelWidth = isFullscreen ? 'w-full' : 'w-[70%]';
+  const sidePanelWidth = isFullscreen ? 'w-0' : 'w-[30%] min-w-[340px]';
 
   return (
-    <div className={`flex flex-col bg-white ${isFullscreen ? 'fixed inset-0 z-[3000]' : ''}`}>
+    <div className={`flex flex-col h-screen bg-white ${isFullscreen ? 'fixed inset-0 z-[3000]' : ''}`}>
       {/* Thumbnail Navigation Bar */}
-      <div className="h-16 border-b border-gray-200 bg-gray-50 flex items-center px-4 overflow-x-auto flex-shrink-0" ref={thumbnailBarRef}>
+      <div className="h-14 border-b border-gray-200 bg-gray-50 flex items-center px-4 overflow-x-auto flex-shrink-0" ref={thumbnailBarRef}>
         <div className="flex items-center gap-2 min-w-max">
           {photos.map((photo, index) => (
             <button
@@ -243,7 +275,7 @@ export default function BrowseView({
               <img
                 src={photo.imagePath}
                 alt={photo.title}
-                className="w-14 h-14 object-cover"
+                className="w-12 h-12 object-cover"
               />
               {index === currentIndex && (
                 <div className="absolute inset-0 bg-primary-500/20" />
@@ -254,117 +286,171 @@ export default function BrowseView({
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left: Photo Display - 85% width */}
+      <div className={`flex-1 flex overflow-hidden min-h-0 ${!isFullscreen && photoPanelSide === 'right' ? 'flex-row-reverse' : ''}`}>
+        {/* Main Display Area (70%) */}
         <div
-          className={`${photoPanelWidth} bg-gray-900 flex items-center justify-center relative transition-all duration-300`}
+          className={`${photoPanelWidth} bg-black flex items-center justify-center relative transition-all duration-300 min-w-0`}
         >
-          {displayPhoto ? (
-            <img
-              src={displayPhoto.imagePath}
-              alt={displayPhoto.title}
-              className="max-w-full max-h-full object-contain"
-            />
+          {isMapMain ? (
+            <div className="h-full w-full" ref={mapRef} />
           ) : (
-            <div className="text-white">No photo</div>
+            <>
+              {displayPhoto ? (
+                <img
+                  src={displayPhoto.imagePath}
+                  alt={displayPhoto.title}
+                  className="max-w-full max-h-full object-contain"
+                />
+              ) : (
+                <div className="text-white">No photo</div>
+              )}
+
+              {/* Photo Counter */}
+              <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-xs font-medium">
+                {currentIndex + 1} / {photos.length}
+              </div>
+
+              <div className="absolute top-3 right-3 flex items-center gap-2">
+                <button
+                  onClick={() => setPhotoPanelSide(side => side === 'left' ? 'right' : 'left')}
+                  className="p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white transition-colors"
+                  title="切换照片与地图位置 (S)"
+                >
+                  <ArrowUpDown className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setIsFullscreen(true)}
+                  className="p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white transition-colors"
+                  title="全屏 (F)"
+                >
+                  <Maximize2 className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Navigation Arrows */}
+              <button
+                onClick={(e) => { e.stopPropagation(); handlePrevious(); }}
+                className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-full text-white transition-colors"
+              >
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleNext(); }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-full text-white transition-colors"
+              >
+                <ChevronRight className="w-6 h-6" />
+              </button>
+
+              {/* Map Expand Button */}
+              <button
+                onClick={() => setMapExpanded(exp => !exp)}
+                className="absolute bottom-4 left-4 p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white transition-colors"
+                title="展开地图 (M)"
+              >
+                <MapPin className="w-5 h-5" />
+              </button>
+            </>
           )}
-
-          {/* Photo Counter */}
-          <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-xs font-medium">
-            {currentIndex + 1} / {photos.length}
-          </div>
-
-          {/* Navigation Arrows */}
-          <button
-            onClick={(e) => { e.stopPropagation(); handlePrevious(); }}
-            className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-full text-white transition-colors"
-          >
-            <ChevronLeft className="w-6 h-6" />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleNext(); }}
-            className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-full text-white transition-colors"
-          >
-            <ChevronRight className="w-6 h-6" />
-          </button>
-
-          {/* Map Expand Button */}
-          <button
-            onClick={() => setMapExpanded(exp => !exp)}
-            className="absolute bottom-4 left-4 p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white transition-colors"
-            title="展开地图 (M)"
-          >
-            <MapPin className="w-5 h-5" />
-          </button>
         </div>
 
-        {/* Right Panel: Map (top) + Info (bottom) */}
+        {/* Side Panel Area (30%) */}
         {!isFullscreen && (
-          <div className={`${mapPanelWidth} flex flex-col border-l border-gray-200 transition-all duration-300`}>
-            {/* Map Area - 60% height */}
-            <div
-              className={`${mapExpanded ? 'flex-[3]' : 'flex-[6]'} relative transition-all duration-300`}
-              ref={mapRef}
-            />
+          <div className={`${sidePanelWidth} flex flex-col border-l border-gray-200 bg-white transition-all duration-300`}>
+            <div className="flex-[3] border-b border-gray-100 overflow-hidden bg-gray-100 relative">
+              {isMapMain ? (
+                /* Swapped: Photo is in the smaller side area */
+                displayPhoto ? (
+                  <div className="h-full w-full bg-black flex items-center justify-center p-2">
+                    <img
+                      src={displayPhoto.imagePath}
+                      alt={displayPhoto.title}
+                      className="max-w-full max-h-full object-contain shadow-lg"
+                    />
+                    <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-sm px-2 py-0.5 rounded text-white text-[10px]">
+                      {currentIndex + 1} / {photos.length}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-full w-full flex items-center justify-center bg-black text-white text-xs">No photo</div>
+                )
+              ) : (
+                /* Normal: Map is in the side area */
+                <div
+                  className="h-full w-full"
+                  ref={mapRef}
+                />
+              )}
+            </div>
 
-            {/* Info Area - 40% height */}
-            <div className={`${mapExpanded ? 'flex-[7]' : 'flex-[4]'} border-t border-gray-200 bg-white overflow-y-auto transition-all duration-300`}>
-              <div className="p-3">
+            <div className="flex-[2] overflow-y-auto bg-white min-h-0">
+              <div className="h-full px-4 py-4 flex flex-col justify-between gap-4">
                 {displayPhoto && (
                   <>
-                    <div className="flex items-center justify-between mb-2">
-                      <h2 className="text-base font-bold text-gray-900 truncate flex-1 mr-2">{displayPhoto.title}</h2>
-                      <div className="flex items-center gap-1 flex-shrink-0">
+                    <div className="space-y-3">
+                      <div>
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <h2 className="text-base font-bold text-gray-900 leading-tight line-clamp-2">{displayPhoto.title}</h2>
+                          <button
+                            onClick={onClose}
+                            className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+                            title="关闭"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500">
+                          <span className="bg-gray-100 px-1.5 py-0.5 rounded">{albumName}</span>
+                          <span>{new Date(displayPhoto.createdAt).toLocaleDateString('zh-CN')}</span>
+                        </div>
+                      </div>
+
+                      {displayPhoto.description && (
+                        <div>
+                          <p className="text-xs text-gray-700 leading-relaxed line-clamp-4">{displayPhoto.description}</p>
+                        </div>
+                      )}
+
+                      {displayPhoto.aiGeneratedText && (
+                        <div className="bg-primary-50 border border-primary-100 rounded-lg p-2.5">
+                          <div className="flex items-center mb-1">
+                            <Sparkles className="w-3 h-3 text-primary-600 mr-1" />
+                            <span className="text-[10px] font-bold text-primary-700 uppercase tracking-wider">AI 文案</span>
+                          </div>
+                          <p className="text-xs text-gray-700 leading-relaxed line-clamp-4">{displayPhoto.aiGeneratedText}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                        <div className="flex items-start gap-1.5 text-xs text-gray-600">
+                          <MapPin className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
+                          <div className="min-w-0 flex-1">
+                            <div className="break-words">{displayPhoto.address || '未设置地址'}</div>
+                            <div className="mt-1 font-mono text-[10px] text-gray-500">
+                              {displayPhoto.latitude.toFixed(6)}, {displayPhoto.longitude.toFixed(6)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
                         <button
                           onClick={() => onEdit(displayPhoto)}
-                          className="btn-primary !py-1 !px-2 text-xs flex items-center gap-1"
+                          className="btn-primary !py-2 !px-2 text-xs flex items-center justify-center gap-1"
                         >
-                          <Edit3 className="w-3 h-3" />
-                          编辑
+                          <Edit3 className="w-3.5 h-3.5" />编辑
                         </button>
                         <button
-                          onClick={() => setIsFullscreen(true)}
-                          className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                          onClick={() => setMapExpanded(exp => !exp)}
+                          className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+                            mapExpanded ? 'border-primary-200 bg-primary-50 text-primary-700' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                          }`}
                         >
-                          <Maximize2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={onClose}
-                          className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                        >
-                          <X className="w-4 h-4" />
+                          {mapExpanded ? '收起地图' : '放大地图'}
                         </button>
                       </div>
                     </div>
-
-                    <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500 mb-2">
-                      <span className="bg-gray-100 px-1.5 py-0.5 rounded">{albumName}</span>
-                      <span>{new Date(displayPhoto.createdAt).toLocaleDateString('zh-CN')}</span>
-                      <span className="font-mono">{displayPhoto.latitude.toFixed(6)}, {displayPhoto.longitude.toFixed(6)}</span>
-                    </div>
-
-                    {displayPhoto.description && (
-                      <div className="mb-2">
-                        <p className="text-xs text-gray-700 leading-relaxed line-clamp-3">{displayPhoto.description}</p>
-                      </div>
-                    )}
-
-                    {displayPhoto.aiGeneratedText && (
-                      <div className="mb-2 bg-primary-50 border border-primary-100 rounded-lg p-2">
-                        <div className="flex items-center mb-1">
-                          <Sparkles className="w-3 h-3 text-primary-600 mr-1" />
-                          <span className="text-[10px] font-bold text-primary-700 uppercase tracking-wider">AI 文案</span>
-                        </div>
-                        <p className="text-xs text-gray-700 leading-relaxed line-clamp-3">{displayPhoto.aiGeneratedText}</p>
-                      </div>
-                    )}
-
-                    {displayPhoto.address && (
-                      <div className="flex items-center gap-1 text-xs text-gray-600">
-                        <MapPin className="w-3 h-3 text-red-500 flex-shrink-0" />
-                        <span className="truncate">{displayPhoto.address}</span>
-                      </div>
-                    )}
                   </>
                 )}
               </div>
@@ -374,7 +460,7 @@ export default function BrowseView({
       </div>
 
       {/* Control Bar */}
-      <div className="h-12 border-t border-gray-200 bg-gray-50 flex items-center justify-between px-4 flex-shrink-0">
+      <div className="h-11 border-t border-gray-200 bg-gray-50 flex items-center justify-between px-4 flex-shrink-0">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setMapExpanded(exp => !exp)}
@@ -385,6 +471,15 @@ export default function BrowseView({
           >
             <MapPin className="w-3.5 h-3.5" />
             <span>{mapExpanded ? '收起地图' : '展开地图'}</span>
+          </button>
+
+          <button
+            onClick={() => setPhotoPanelSide(side => side === 'left' ? 'right' : 'left')}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-medium text-gray-700 transition-colors"
+            title="切换照片与地图位置 (S)"
+          >
+            <ArrowUpDown className="w-3.5 h-3.5" />
+            <span>切换布局</span>
           </button>
 
           <div className="relative">
@@ -425,11 +520,15 @@ export default function BrowseView({
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-[10px] text-gray-500">
+        <div className="flex items-center gap-3 text-[10px] text-gray-500 whitespace-nowrap">
           <span className="flex items-center gap-1">
-            <kbd className="px-1.5 py-0.5 bg-gray-200 rounded text-[9px]">↑</kbd>
-            <kbd className="px-1.5 py-0.5 bg-gray-200 rounded text-[9px]">↓</kbd>
+            <kbd className="px-1.5 py-0.5 bg-gray-200 rounded text-[9px]">←</kbd>
+            <kbd className="px-1.5 py-0.5 bg-gray-200 rounded text-[9px]">→</kbd>
             切换照片
+          </span>
+          <span className="flex items-center gap-1">
+            <kbd className="px-1.5 py-0.5 bg-gray-200 rounded text-[9px]">S</kbd>
+            切换布局
           </span>
           <span className="flex items-center gap-1">
             <kbd className="px-1.5 py-0.5 bg-gray-200 rounded text-[9px]">M</kbd>
