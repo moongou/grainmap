@@ -71,6 +71,8 @@ function Map({ user, onLogout }: MapProps) {
   const [loading, setLoading] = useState(false);
   const [mapLoading, setMapLoading] = useState(true);
   const [mapError, setMapError] = useState('');
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [mapType, setMapType] = useState<'standard' | 'satellite'>('standard');
   const [mapProvider, setMapProvider] = useState<MapProvider>('tencent');
   const [isEditing, setIsEditing] = useState(false);
@@ -806,6 +808,12 @@ function Map({ user, onLogout }: MapProps) {
 
         {/* 操作按钮 */}
         <div className="p-4 border-b border-gray-200 space-y-2">
+          {error && (
+            <div className="p-2 bg-red-50 border border-red-200 rounded-lg text-red-600 text-[10px] animate-slide-up mb-2 flex items-center">
+              <AlertCircle className="w-3 h-3 mr-1.5 flex-shrink-0" />
+              {error}
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => {
