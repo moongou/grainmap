@@ -76,8 +76,156 @@ function Map({ user, onLogout }: MapProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
   const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
+  const [thumbnailRect, setThumbnailRect] = useState<{ x: number, y: number, w: number, h: number, dirIndex: number } | null>(null);
+  const [crosshairPos, setCrosshairPos] = useState<{ x: number, y: number } | null>(null);
+  const [isDraggingThumbnail, setIsDraggingThumbnail] = useState(false);
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
 
   const previewLayerRef = useRef<L.LayerGroup | null>(null);
+
+  // Directions: N, S, E, W, NE, NW, SE, SW
+  const DIRECTIONS = [
+    { dx: 0, dy: -1 }, // N
+    { dx: 0, dy: 1 },  // S
+    { dx: 1, dy: 0 },  // E
+    { dx: -1, dy: 0 }, // W
+    { dx: 1, dy: -1 }, // NE
+    { dx: -1, dy: -1 },// NW
+    { dx: 1, dy: 1 },  // SE
+    { dx: -1, dy: 1 }  // SW
+  ];
+
+  const MARGIN = 40; // ~1cm in screen pixels
+
+  // Helper to calculate best thumbnail position based on crosshair screen position
+  const calculateThumbnailRect = (px: number, py: number, imgW: number, imgH: number, preferredDirIndex: number = -1) => {
+    // Thumbnail display size (roughly 5x the small marker, but keeping aspect ratio)
+    // Small markers are 50x50, so target area is ~250x250, but constrained by image ratio.
+    const maxDim = 312; // 240 * 1.3
+    let w = maxDim;
+    let h = maxDim;
+    if (imgW > imgH) {
+      h = (imgH / imgW) * maxDim;
+    } else {
+      w = (imgW / imgH) * maxDim;
+    }
+
+    // Directions to try (if preferred is set, try it first)
+    const indices = preferredDirIndex >= 0
+      ? [preferredDirIndex, ...DIRECTIONS.map((_, i) => i).filter(i => i !== preferredDirIndex)]
+      : DIRECTIONS.map((_, i) => i);
+
+    for (const i of indices) {
+      const dir = DIRECTIONS[i];
+      // Center of thumbnail Cx, Cy such that boundary is MARGIN away from px, py
+      // Boundary distance d = |Cx - px| - w/2 or |Cy - py| - h/2
+      // So Cx = px + dir.dx * (w/2 + MARGIN), but if dir.dx is 0, Cx = px
+      // To be precise, if it's diagonal (NE/NW/SE/SW), both dx and dy contribute.
+      const cx = px + dir.dx * (w/2 + MARGIN);
+      const cy = py + dir.dy * (h/2 + MARGIN);
+
+      // Check if this position fits on screen (roughly)
+      const rect = { x: cx - w/2, y: cy - h/2, w, h, dirIndex: i };
+      if (rect.x > 50 && rect.x + w < window.innerWidth - 50 && rect.y > 50 && rect.y + h < window.innerHeight - 50) {
+        return rect;
+      }
+    }
+    // Fallback to first direction if none fit perfectly
+    const dir = DIRECTIONS[indices[0]];
+    return { x: px + dir.dx * (w/2 + MARGIN) - w/2, y: py + dir.dy * (h/2 + MARGIN) - h/2, w, h, dirIndex: indices[0] };
+  };
+
+  // Sync crosshair screen position and leader line
+  useEffect(() => {
+    if (!mapRef.current || !previewPhoto) {
+      setCrosshairPos(null);
+      setThumbnailRect(null);
+      return;
+    }
+
+    const map = mapRef.current;
+    const updatePositions = () => {
+      const latlng = L.latLng(previewPhoto.latitude, previewPhoto.longitude);
+      const containerPoint = map.latLngToContainerPoint(latlng);
+
+      // Get map container offset relative to window for fixed overlay positioning
+      const mapRect = mapContainerRef.current?.getBoundingClientRect();
+      const offsetX = mapRect?.left || 0;
+      const offsetY = mapRect?.top || 0;
+
+      setCrosshairPos({ x: containerPoint.x + offsetX, y: containerPoint.y + offsetY });
+    };
+
+    map.on('move zoom viewreset', updatePositions);
+    updatePositions();
+
+    // Initial positioning: fly to and then set thumbnail
+    const targetZoom = 15;
+    map.flyTo([previewPhoto.latitude, previewPhoto.longitude], targetZoom);
+
+    // Once move ends, calculate initial thumbnail position
+    const onMoveEnd = () => {
+      const latlng = L.latLng(previewPhoto.latitude, previewPhoto.longitude);
+      const cp = map.latLngToContainerPoint(latlng);
+
+      const mapRect = mapContainerRef.current?.getBoundingClientRect();
+      const ox = mapRect?.left || 0;
+      const oy = mapRect?.top || 0;
+
+      // Load image to get aspect ratio
+      const img = new Image();
+      img.onload = () => {
+        setThumbnailRect(calculateThumbnailRect(cp.x + ox, cp.y + oy, img.width, img.height));
+      };
+      img.src = previewPhoto.imagePath;
+      map.off('moveend', onMoveEnd);
+    };
+    map.on('moveend', onMoveEnd);
+
+    return () => {
+      map.off('move zoom viewreset', updatePositions);
+      map.off('moveend', onMoveEnd);
+    };
+  }, [previewPhoto]);
+
+  // Handle auto-repositioning if crosshair gets obscured
+  useEffect(() => {
+    if (!crosshairPos || !thumbnailRect || isDraggingThumbnail) return;
+
+    // Margin check: if crosshair is inside thumbnail or too close
+    const { x, y, w, h } = thumbnailRect;
+    const buffer = 10; // Extra buffer before jumping
+    if (crosshairPos.x > x - buffer && crosshairPos.x < x + w + buffer &&
+        crosshairPos.y > y - buffer && crosshairPos.y < y + h + buffer) {
+
+      // Need aspect ratio again (could store it, but for now just use current w, h)
+      setThumbnailRect(calculateThumbnailRect(crosshairPos.x, crosshairPos.y, w, h, (thumbnailRect.dirIndex + 1) % 8));
+    }
+  }, [crosshairPos, thumbnailRect, isDraggingThumbnail]);
+
+  // Dragging logic
+  useEffect(() => {
+    if (!isDraggingThumbnail) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      setThumbnailRect(prev => prev ? {
+        ...prev,
+        x: e.clientX - dragOffsetRef.current.x,
+        y: e.clientY - dragOffsetRef.current.y
+      } : null);
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingThumbnail(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingThumbnail]);
 
   // 添加照片表单状态 (支持多张导入)
   const [newPhoto, setNewPhoto] = useState<Partial<Photo>>({
@@ -110,14 +258,12 @@ function Map({ user, onLogout }: MapProps) {
   };
 
   
-  // 创建高精度对标点 (红色“米”字线)
+  // 创建高精度对标点 (红色“十”字线)
   const createMarkerIcon = (_photo: Photo) => {
     const iconHtml = `
       <div class="precision-target">
         <div class="target-line vertical"></div>
         <div class="target-line horizontal"></div>
-        <div class="target-line diagonal-1"></div>
-        <div class="target-line diagonal-2"></div>
         <div class="target-center"></div>
       </div>
     `;
@@ -324,24 +470,21 @@ function Map({ user, onLogout }: MapProps) {
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
 
-    const filteredPhotos = selectedAlbumId
-      ? photos.filter(p => p.albumId === selectedAlbumId)
-      : photos;
+    // Note: We no longer show all markers on load as per user request.
+    // Markers are only shown when a photo is selected via previewPhoto.
+    if (!previewPhoto) return;
 
-    filteredPhotos.forEach(photo => {
-      if (!photo.longitude || !photo.latitude) return;
-      const marker = L.marker([photo.latitude, photo.longitude], {
-        icon: createMarkerIcon(photo),
-      });
-
-      marker.on('click', () => {
-        navigate(`/browse/${photo.id}?albumId=${selectedAlbumId || ''}`);
-      });
-
-      marker.addTo(mapRef.current!);
-      markersRef.current.push(marker);
+    const marker = L.marker([previewPhoto.latitude, previewPhoto.longitude], {
+      icon: createMarkerIcon(previewPhoto),
     });
-  }, [photos, selectedAlbumId]);
+
+    marker.on('click', () => {
+      navigate(`/browse/${previewPhoto.id}?albumId=${selectedAlbumId || ''}`);
+    });
+
+    marker.addTo(mapRef.current!);
+    markersRef.current.push(marker);
+  }, [photos, selectedAlbumId, previewPhoto]);
 
   // Handle preview thumbnail and leader line
   useEffect(() => {
@@ -355,63 +498,8 @@ function Map({ user, onLogout }: MapProps) {
 
     if (!previewPhoto) return;
 
-    const map = mapRef.current;
-    const { latitude, longitude, imagePath } = previewPhoto;
-
-    // fly to location
-    map.flyTo([latitude, longitude], 15);
-
-    // Get current center point in pixels to calculate offset
-    const targetPoint = map.project([latitude, longitude], map.getZoom());
-
-    // 随机偏移位置 (2-3cm 左右，约 80-150px)，不固定方向
-    const angle = Math.random() * Math.PI * 2;
-    const distance = 120 + Math.random() * 80;
-    const offset = L.point(Math.cos(angle) * distance, Math.sin(angle) * distance);
-
-    const thumbnailPoint = targetPoint.add(offset);
-    const thumbnailLatLng = map.unproject(thumbnailPoint, map.getZoom());
-
-    // Create a curved leader line (using a midpoint for a slight curve)
-    const midOffset = L.point(Math.cos(angle) * (distance * 0.6), Math.sin(angle + 0.3) * (distance * 0.4));
-    const midPoint = targetPoint.add(midOffset);
-    const midLatLng = map.unproject(midPoint, map.getZoom());
-
-    const leaderLine = L.polyline([
-      [latitude, longitude],
-      [midLatLng.lat, midLatLng.lng],
-      [thumbnailLatLng.lat, thumbnailLatLng.lng]
-    ], {
-      color: '#1e3a8a', // 深蓝色
-      weight: 2,
-      dashArray: '4, 6', // 虚线
-      opacity: 0.8,
-      lineJoin: 'round'
-    }).addTo(previewLayerRef.current);
-
-    // Create large thumbnail icon (1.6x larger than previous ~200px -> ~320px)
-    const largeIcon = L.divIcon({
-      className: 'preview-thumbnail-marker',
-      html: `
-        <div class="relative group">
-          <div class="absolute -inset-3 bg-white/30 blur-xl rounded-2xl"></div>
-          <div class="relative bg-white p-2.5 rounded-2xl shadow-2xl border-[5px] border-white overflow-hidden transform transition-transform">
-            <img src="${imagePath}" class="w-[300px] h-[300px] object-cover rounded-lg shadow-inner" />
-            <div class="absolute bottom-3 right-3 bg-primary-600 text-white p-2 rounded-full shadow-lg">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-map-pin"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-            </div>
-          </div>
-        </div>
-      `,
-      iconSize: [320, 320],
-      iconAnchor: [160, 160]
-    });
-
-    L.marker([thumbnailLatLng.lat, thumbnailLatLng.lng], {
-      icon: largeIcon,
-      zIndexOffset: 1000
-    }).addTo(previewLayerRef.current);
-
+    // We no longer add the thumbnail as a Leaflet marker.
+    // It's handled by the React overlay state.
   }, [previewPhoto]);
 
   const loadPhotos = async () => {
@@ -629,6 +717,20 @@ function Map({ user, onLogout }: MapProps) {
               <span className="text-lg font-bold text-gray-900">Grainmap</span>
             </div>
             <div className="flex items-center space-x-2">
+              <button
+                onClick={() => {
+                  setPreviewPhoto(null);
+                  if (mapRef.current) {
+                    mapRef.current.flyTo(DEFAULT_CENTER, DEFAULT_ZOOM);
+                  }
+                }}
+                className="p-2 text-gray-600 hover:text-primary-600 hover:bg-primary-50 rounded-lg"
+                title="回到首页"
+              >
+                <div className="flex flex-col items-center">
+                  <span className="text-[10px] font-bold">HOME</span>
+                </div>
+              </button>
               <button onClick={() => navigate('/settings')} className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg" title="设置">
                 <Settings className="w-5 h-5" />
               </button>
@@ -948,6 +1050,59 @@ function Map({ user, onLogout }: MapProps) {
           onClose={() => setShowAIGenerate(false)}
           onGenerate={handleAIGenerated}
         />
+      )}
+
+      {thumbnailRect && crosshairPos && previewPhoto && (
+        <>
+          <svg className="fixed inset-0 pointer-events-none z-[1200] w-full h-full">
+            <line
+              x1={crosshairPos.x}
+              y1={crosshairPos.y}
+              x2={thumbnailRect.x + thumbnailRect.w / 2}
+              y2={thumbnailRect.y + thumbnailRect.h / 2}
+              stroke="#1e3a8a"
+              strokeWidth="1"
+              strokeDasharray="5,5"
+              strokeOpacity="0.6"
+            />
+          </svg>
+          <div
+            className="fixed z-[1201] cursor-move select-none animate-thumbnail-emerge"
+            style={{
+              left: thumbnailRect.x,
+              top: thumbnailRect.y,
+              width: thumbnailRect.w,
+              height: thumbnailRect.h,
+              "--tw-translate-x": `${crosshairPos.x - (thumbnailRect.x + thumbnailRect.w / 2)}px`,
+              "--tw-translate-y": `${crosshairPos.y - (thumbnailRect.y + thumbnailRect.h / 2)}px`
+            } as any}
+            onMouseDown={(e) => {
+              setIsDraggingThumbnail(true);
+              dragOffsetRef.current = {
+                x: e.clientX - thumbnailRect.x,
+                y: e.clientY - thumbnailRect.y
+              };
+            }}
+          >
+            <div className="absolute -inset-2 bg-white/30 blur-lg rounded-xl"></div>
+            <div className="relative bg-white p-2 rounded-xl shadow-2xl border-[4px] border-white overflow-hidden h-full w-full">
+              <img
+                src={previewPhoto.imagePath}
+                className="w-full h-full object-contain rounded-lg shadow-inner bg-gray-50"
+                draggable={false}
+              />
+            </div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setPreviewPhoto(null);
+              }}
+              className="absolute -top-2 -right-2 bg-white text-gray-500 p-1 rounded-full shadow-lg hover:text-red-500 transition-colors z-10 border border-gray-100"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

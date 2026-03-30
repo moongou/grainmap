@@ -62,7 +62,6 @@ export default function BrowseView({
   const [sortMode, setSortMode] = useState<SortMode>('order');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
-  const [mapExpanded, setMapExpanded] = useState(false);
   const [photoPanelSide, setPhotoPanelSide] = useState<'left' | 'right'>('left');
   const [isMapMain, setIsMapMain] = useState(false);
 
@@ -226,9 +225,6 @@ export default function BrowseView({
       } else if (e.key === 'f' || e.key === 'F') {
         e.preventDefault();
         setIsFullscreen(f => !f);
-      } else if (e.key === 'm' || e.key === 'M') {
-        e.preventDefault();
-        setMapExpanded(exp => !exp);
       } else if (e.key === 's' || e.key === 'S') {
         e.preventDefault();
         setPhotoPanelSide(side => side === 'left' ? 'right' : 'left');

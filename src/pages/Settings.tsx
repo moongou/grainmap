@@ -181,183 +181,204 @@ function Settings({ user }: SettingsProps) {
 
       {/* Content - Scrollable container */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto px-4 py-5 space-y-4">
-          {/* Map Provider Settings Card */}
-          <div className="card !p-4">
-            <div className="flex items-center mb-3">
-              <div className="p-1.5 bg-primary-100 rounded-lg mr-2.5">
-                <MapPin className="w-4 h-4 text-primary-600" />
+        <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col md:flex-row gap-8">
+          {/* Logo Sidebar */}
+          <div className="w-full md:w-80 flex-shrink-0">
+            <div className="bg-white rounded-3xl shadow-xl p-4 border border-gray-100 sticky top-0 overflow-hidden group">
+              <div className="absolute -inset-2 bg-primary-500/5 blur-2xl group-hover:bg-primary-500/10 transition-colors" />
+              <img
+                src="assets/grainmap-logo.jpg"
+                alt="Grainmap Logo"
+                className="relative w-full rounded-2xl shadow-inner object-contain"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.src = "https://ui-avatars.com/api/?name=Grainmap&background=1e3a8a&color=fff&size=512";
+                }}
+              />
+              <div className="mt-4 px-2">
+                <h3 className="text-lg font-bold text-gray-900">Grainmap</h3>
+                <p className="text-xs text-gray-500 mt-1 leading-relaxed">记录每一颗被点亮的足迹，编织属于你的地理记忆。</p>
               </div>
-              <div>
-                <h2 className="text-sm font-semibold text-gray-900">地图服务设置</h2>
-                <p className="text-[10px] text-gray-500">切换当前可用的地图底图</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {/* Provider Selection */}
-              <div>
-                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
-                  地图提供商
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {MAP_PROVIDERS.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => setMapProvider(p.id as any)}
-                      className={`p-2 rounded-lg border-2 text-center transition-all ${
-                        mapProvider === p.id
-                          ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-200'
-                          : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'
-                      }`}
-                    >
-                      <div className="text-sm font-medium text-gray-900">{p.name}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
             </div>
           </div>
 
-          {/* AI Settings Card */}
-          <div className="card !p-4">
-            <div className="flex items-center mb-3">
-              <div className="p-1.5 bg-primary-100 rounded-lg mr-2.5">
-                <Bot className="w-4 h-4 text-primary-600" />
+          <div className="flex-1 space-y-4">
+            {/* Map Provider Settings Card */}
+            <div className="card !p-4">
+              <div className="flex items-center mb-3">
+                <div className="p-1.5 bg-primary-100 rounded-lg mr-2.5">
+                  <MapPin className="w-4 h-4 text-primary-600" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">地图服务设置</h2>
+                  <p className="text-[10px] text-gray-500">切换当前可用的地图底图</p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-sm font-semibold text-gray-900">AI 文案生成设置</h2>
-                <p className="text-[10px] text-gray-500">配置大语言模型以生成照片文案</p>
+
+              <div className="space-y-4">
+                {/* Provider Selection */}
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                    地图提供商
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {MAP_PROVIDERS.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => setMapProvider(p.id as any)}
+                        className={`p-2 rounded-lg border-2 text-center transition-all ${
+                          mapProvider === p.id
+                            ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-200'
+                            : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="text-sm font-medium text-gray-900">{p.name}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
 
-            {error && (
-              <div className="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg flex items-center text-red-700 text-xs animate-slide-up">
-                <AlertCircle className="w-3.5 h-3.5 mr-2 flex-shrink-0" />
-                {error}
-              </div>
-            )}
-
-            {message && (
-              <div className="mb-3 p-2.5 bg-green-50 border border-green-200 rounded-lg text-green-700 text-xs flex items-center animate-slide-up">
-                <CheckCircle2 className="w-3.5 h-3.5 mr-2 flex-shrink-0" />
-                {message}
-              </div>
-            )}
-
-            <div className="space-y-4">
-              {/* Provider Selection */}
-              <div>
-                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
-                  AI 提供商
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {AI_PROVIDERS.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => handleProviderChange(p.id as any)}
-                      className={`p-1.5 rounded-lg border-2 text-center transition-all ${
-                        provider === p.id
-                          ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-200'
-                          : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'
-                      }`}
-                    >
-                      <div className="text-xs font-medium text-gray-900">{p.name}</div>
-                    </button>
-                  ))}
+            {/* AI Settings Card */}
+            <div className="card !p-4">
+              <div className="flex items-center mb-3">
+                <div className="p-1.5 bg-primary-100 rounded-lg mr-2.5">
+                  <Bot className="w-4 h-4 text-primary-600" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">AI 文案生成设置</h2>
+                  <p className="text-[10px] text-gray-500">配置大语言模型以生成照片文案</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* API Key */}
-                <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    <div className="flex items-center">
-                      <Key className="w-3 h-3 mr-1 text-gray-400" />
-                      API Key
-                    </div>
+              {error && (
+                <div className="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg flex items-center text-red-700 text-xs animate-slide-up">
+                  <AlertCircle className="w-3.5 h-3.5 mr-2 flex-shrink-0" />
+                  {error}
+                </div>
+              )}
+
+              {message && (
+                <div className="mb-3 p-2.5 bg-green-50 border border-green-200 rounded-lg text-green-700 text-xs flex items-center animate-slide-up">
+                  <CheckCircle2 className="w-3.5 h-3.5 mr-2 flex-shrink-0" />
+                  {message}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {/* Provider Selection */}
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                    AI 提供商
                   </label>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    className="input-field text-sm !py-1.5"
-                    placeholder={provider === 'ollama' ? 'Ollama 不需要 API Key' : '输入你的 API Key'}
-                    disabled={provider === 'ollama'}
-                  />
+                  <div className="grid grid-cols-3 gap-2">
+                    {AI_PROVIDERS.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => handleProviderChange(p.id as any)}
+                        className={`p-1.5 rounded-lg border-2 text-center transition-all ${
+                          provider === p.id
+                            ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-200'
+                            : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="text-xs font-medium text-gray-900">{p.name}</div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                {/* API URL */}
-                <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    <div className="flex items-center">
-                      <Globe className="w-3 h-3 mr-1 text-gray-400" />
-                      API URL
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* API Key */}
+                  <div className="flex-1">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      <div className="flex items-center">
+                        <Key className="w-3 h-3 mr-1 text-gray-400" />
+                        API Key
+                      </div>
+                    </label>
+                    <input
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      className="input-field text-sm !py-1.5"
+                      placeholder={provider === 'ollama' ? 'Ollama 不需要 API Key' : '输入你的 API Key'}
+                      disabled={provider === 'ollama'}
+                    />
+                  </div>
+
+                  {/* API URL */}
+                  <div className="flex-1">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      <div className="flex items-center">
+                        <Globe className="w-3 h-3 mr-1 text-gray-400" />
+                        API URL
+                      </div>
+                    </label>
+                    <div className="flex space-x-2">
+                      <input
+                        type="text"
+                        value={apiUrl}
+                        onChange={(e) => setApiUrl(e.target.value)}
+                        className="input-field text-sm !py-1.5 flex-1"
+                        placeholder="API 地址"
+                      />
+                      <button
+                        onClick={handleTestConnection}
+                        disabled={testing}
+                        className="px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors disabled:opacity-50 flex items-center"
+                      >
+                        {testing ? <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mr-1" /> : <Search className="w-3 h-3 mr-1" />}
+                        测试
+                      </button>
                     </div>
-                  </label>
-                  <div className="flex space-x-2">
+                  </div>
+                </div>
+
+                {/* Model */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">模型名称</label>
+                  {availableModels.length > 0 ? (
+                    <div className="relative">
+                      <select
+                        value={model}
+                        onChange={(e) => setModel(e.target.value)}
+                        className="input-field text-sm !py-1.5 appearance-none"
+                      >
+                        <option value="">请选择模型...</option>
+                        {availableModels.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-400">
+                        <Search className="w-3 h-3" />
+                      </div>
+                    </div>
+                  ) : (
                     <input
                       type="text"
-                      value={apiUrl}
-                      onChange={(e) => setApiUrl(e.target.value)}
-                      className="input-field text-sm !py-1.5 flex-1"
-                      placeholder="API 地址"
-                    />
-                    <button
-                      onClick={handleTestConnection}
-                      disabled={testing}
-                      className="px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors disabled:opacity-50 flex items-center"
-                    >
-                      {testing ? <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mr-1" /> : <Search className="w-3 h-3 mr-1" />}
-                      测试
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Model */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">模型名称</label>
-                {availableModels.length > 0 ? (
-                  <div className="relative">
-                    <select
                       value={model}
                       onChange={(e) => setModel(e.target.value)}
-                      className="input-field text-sm !py-1.5 appearance-none"
-                    >
-                      <option value="">请选择模型...</option>
-                      {availableModels.map(m => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-400">
-                      <Search className="w-3 h-3" />
-                    </div>
-                  </div>
-                ) : (
-                  <input
-                    type="text"
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    className="input-field text-sm !py-1.5"
-                    placeholder="例如: gpt-3.5-turbo 或自定义模型 ID"
-                  />
-                )}
-                <p className="text-[10px] text-gray-500 mt-1">
-                  {availableModels.length > 0 ? '建议从已加载的列表中选择' : '点击“测试”可自动获取可用模型列表'}
-                </p>
+                      className="input-field text-sm !py-1.5"
+                      placeholder="例如: gpt-3.5-turbo 或自定义模型 ID"
+                    />
+                  )}
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    {availableModels.length > 0 ? '建议从已加载的列表中选择' : '点击“测试”可自动获取可用模型列表'}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* About Card */}
-          <div className="card !p-4">
-            <h2 className="text-sm font-semibold text-gray-900 mb-2">关于 Grainmap</h2>
-            <div className="text-[11px] text-gray-600 space-y-1">
-              <p>版本：1.0.0</p>
-              <p>Grainmap 是一个照片地图应用，让你可以在地图上标记和记录你的照片故事。</p>
-              <p>所有数据都存储在本地，保护你的隐私。</p>
+            {/* About Card */}
+            <div className="card !p-4">
+              <h2 className="text-sm font-semibold text-gray-900 mb-2">关于 Grainmap</h2>
+              <div className="text-[11px] text-gray-600 space-y-1">
+                <p>版本：1.0.0</p>
+                <p>Grainmap 是一个照片地图应用，让你可以在地图上标记和记录你的照片故事。</p>
+                <p>所有数据都存储在本地，保护你的隐私。</p>
+              </div>
             </div>
           </div>
         </div>

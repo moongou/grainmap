@@ -243,18 +243,6 @@ div[ref*="mapContainerRef"] {
   height: 1px;
 }
 
-.target-line.diagonal-1 {
-  width: 1px;
-  height: 100%;
-  transform: rotate(45deg);
-}
-
-.target-line.diagonal-2 {
-  width: 1px;
-  height: 100%;
-  transform: rotate(-45deg);
-}
-
 .target-center {
   width: 4px;
   height: 4px;
@@ -266,4 +254,20 @@ div[ref*="mapContainerRef"] {
 .custom-leaflet-target {
   background: transparent;
   border: none;
+}
+
+/* Preview emergence animation */
+@keyframes thumbnail-emerge {
+  0% {
+    transform: scale(0) translate(var(--tw-translate-x), var(--tw-translate-y));
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1) translate(0, 0);
+    opacity: 1;
+  }
+}
+
+.animate-thumbnail-emerge {
+  animation: thumbnail-emerge 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
