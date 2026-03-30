@@ -85,7 +85,21 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "icon": "public/assets/grainmap-logo.jpg",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/assets/grainmap-logo.jpg",
+      "uninstallerIcon": "public/assets/grainmap-logo.jpg",
+      "installerHeaderIcon": "public/assets/grainmap-logo.jpg",
+      "installerSidebar": "public/assets/installation-guide.png",
+      "uninstallerSidebar": "public/assets/installation-guide.png",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Grainmap"
     }
   }
 }

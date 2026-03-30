@@ -102,6 +102,7 @@ function Map({ user, onLogout }: MapProps) {
     // Thumbnail display size (roughly 5x the small marker, but keeping aspect ratio)
     // Small markers are 50x50, so target area is ~250x250, but constrained by image ratio.
     const maxDim = 312; // 240 * 1.3
+    const actionBarHeight = 44; // 底部操作栏预留高度
     let w = maxDim;
     let h = maxDim;
     if (imgW > imgH) {
@@ -110,10 +111,17 @@ function Map({ user, onLogout }: MapProps) {
       w = (imgW / imgH) * maxDim;
     }
 
-    // Directions to try (if preferred is set, try it first)
-    const indices = preferredDirIndex >= 0
-      ? [preferredDirIndex, ...DIRECTIONS.map((_, i) => i).filter(i => i !== preferredDirIndex)]
-      : DIRECTIONS.map((_, i) => i);
+    h += actionBarHeight; // 为按钮留出空间
+
+    // Directions to try: if preferred is set, try it first.
+    // Otherwise, shuffle directions to make it appear randomly around the target.
+    let indices = DIRECTIONS.map((_, i) => i);
+    if (preferredDirIndex >= 0) {
+      indices = [preferredDirIndex, ...indices.filter(i => i !== preferredDirIndex)];
+    } else {
+      // Randomize initial direction
+      indices.sort(() => Math.random() - 0.5);
+    }
 
     for (const i of indices) {
       const dir = DIRECTIONS[i];
@@ -159,32 +167,22 @@ function Map({ user, onLogout }: MapProps) {
     map.on('move zoom viewreset', updatePositions);
     updatePositions();
 
-    // Initial positioning: fly to and then set thumbnail
-    const targetZoom = 15;
-    map.flyTo([previewPhoto.latitude, previewPhoto.longitude], targetZoom);
-
-    // Once move ends, calculate initial thumbnail position
-    const onMoveEnd = () => {
+    // Calculate initial thumbnail position based on aspect ratio
+    const img = new Image();
+    img.onload = () => {
+      // Re-get current crosshair position in case it shifted slightly during load
       const latlng = L.latLng(previewPhoto.latitude, previewPhoto.longitude);
       const cp = map.latLngToContainerPoint(latlng);
-
       const mapRect = mapContainerRef.current?.getBoundingClientRect();
       const ox = mapRect?.left || 0;
       const oy = mapRect?.top || 0;
 
-      // Load image to get aspect ratio
-      const img = new Image();
-      img.onload = () => {
-        setThumbnailRect(calculateThumbnailRect(cp.x + ox, cp.y + oy, img.width, img.height));
-      };
-      img.src = previewPhoto.imagePath;
-      map.off('moveend', onMoveEnd);
+      setThumbnailRect(calculateThumbnailRect(cp.x + ox, cp.y + oy, img.width, img.height));
     };
-    map.on('moveend', onMoveEnd);
+    img.src = previewPhoto.imagePath;
 
     return () => {
       map.off('move zoom viewreset', updatePositions);
-      map.off('moveend', onMoveEnd);
     };
   }, [previewPhoto]);
 
@@ -522,7 +520,30 @@ function Map({ user, onLogout }: MapProps) {
 
 
   const openPhoto = (photo: Photo) => {
-    setPreviewPhoto(photo);
+    if (!mapRef.current) return;
+
+    // 1. 先清除当前预览 (避免上一张照片的框架在移动时闪烁)
+    setPreviewPhoto(null);
+    setThumbnailRect(null);
+    setCrosshairPos(null);
+
+    // 2. 地图飞至目标位置
+    const targetZoom = 15;
+    const randomDuration = 0.8 + Math.random() * 0.7; // 0.8s - 1.5s 随机
+    mapRef.current.flyTo([photo.latitude, photo.longitude], targetZoom, {
+      duration: randomDuration,
+      easeLinearity: 0.25
+    });
+
+    // 3. 监听飞行动画结束
+    const onMoveEnd = () => {
+      // 延时一小会儿确保视觉平滑
+      setTimeout(() => {
+        setPreviewPhoto(photo);
+      }, 100);
+      mapRef.current?.off('moveend', onMoveEnd);
+    };
+    mapRef.current.on('moveend', onMoveEnd);
   };
 
   const handleSelectImage = async () => {
@@ -785,10 +806,30 @@ function Map({ user, onLogout }: MapProps) {
 
         {/* 操作按钮 */}
         <div className="p-4 border-b border-gray-200 space-y-2">
-          <button onClick={() => navigate(`/browse?albumId=${selectedAlbumId || ''}`)} className="w-full btn-secondary flex items-center justify-center">
-            <Eye className="w-4 h-4 mr-2" />
-            浏览模式
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                if (previewPhoto) {
+                  setEditingPhoto(previewPhoto);
+                } else {
+                  setError('请先在地图或列表中选择一张照片');
+                  setTimeout(() => setError(''), 3000);
+                }
+              }}
+              className="flex-1 btn-secondary !py-2 flex items-center justify-center text-xs"
+              title="设定照片 (编辑当前选中照片)"
+            >
+              <Edit2 className="w-3.5 h-3.5 mr-1.5" />
+              设定照片
+            </button>
+            <button
+              onClick={() => navigate(`/browse?albumId=${selectedAlbumId || ''}`)}
+              className="flex-1 btn-secondary !py-2 flex items-center justify-center text-xs"
+            >
+              <Eye className="w-3.5 h-3.5 mr-1.5" />
+              浏览相册
+            </button>
+          </div>
           <button onClick={() => { resetAddForm(); setShowAddModal(true); }} className="w-full btn-primary flex items-center justify-center">
             <Plus className="w-4 h-4 mr-2" />
             添加照片
@@ -1067,14 +1108,14 @@ function Map({ user, onLogout }: MapProps) {
             />
           </svg>
           <div
+            key={previewPhoto.id}
             className="fixed z-[1201] cursor-move select-none animate-thumbnail-emerge"
             style={{
               left: thumbnailRect.x,
               top: thumbnailRect.y,
               width: thumbnailRect.w,
               height: thumbnailRect.h,
-              "--tw-translate-x": `${crosshairPos.x - (thumbnailRect.x + thumbnailRect.w / 2)}px`,
-              "--tw-translate-y": `${crosshairPos.y - (thumbnailRect.y + thumbnailRect.h / 2)}px`
+              transformOrigin: `${crosshairPos.x - thumbnailRect.x}px ${crosshairPos.y - thumbnailRect.y}px`
             } as any}
             onMouseDown={(e) => {
               setIsDraggingThumbnail(true);
@@ -1085,12 +1126,39 @@ function Map({ user, onLogout }: MapProps) {
             }}
           >
             <div className="absolute -inset-2 bg-white/30 blur-lg rounded-xl"></div>
-            <div className="relative bg-white p-2 rounded-xl shadow-2xl border-[4px] border-white overflow-hidden h-full w-full">
-              <img
-                src={previewPhoto.imagePath}
-                className="w-full h-full object-contain rounded-lg shadow-inner bg-gray-50"
-                draggable={false}
-              />
+            <div className="relative bg-white p-2 rounded-xl shadow-2xl border-[4px] border-white overflow-hidden h-full w-full flex flex-col group/thumb">
+              <div className="flex-1 min-h-0 relative overflow-hidden rounded-lg">
+                <img
+                  src={previewPhoto.imagePath}
+                  className="w-full h-full object-contain shadow-inner bg-gray-50"
+                  draggable={false}
+                />
+              </div>
+
+              {/* 操作按钮栏 - 默认隐藏，悬浮或选中时显示 */}
+              <div className="mt-2 flex gap-1.5 animate-slide-up">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingPhoto(previewPhoto);
+                  }}
+                  className="flex-1 bg-gray-100 hover:bg-primary-50 hover:text-primary-600 text-gray-600 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center transition-all"
+                  title="设定照片 (编辑)"
+                >
+                  <Edit2 className="w-3 h-3 mr-1" />
+                  设定照片
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/browse/${previewPhoto.id}?albumId=${selectedAlbumId || ''}`);
+                  }}
+                  className="flex-1 bg-primary-600 hover:bg-primary-700 text-white py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center transition-all shadow-sm"
+                >
+                  <Eye className="w-3 h-3 mr-1" />
+                  浏览相册
+                </button>
+              </div>
             </div>
             <button
               onClick={(e) => {

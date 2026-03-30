@@ -28,10 +28,36 @@ protocol.registerSchemesAsPrivileged([
 
 const createWindow = () => {
   const preloadPath = path.join(app.getAppPath(), 'dist-electron', 'preload.js')
-  console.log('Preload Path:', preloadPath)
-  if (!fs.existsSync(preloadPath)) {
-    console.error('CRITICAL: Preload script NOT found at', preloadPath)
-  }
+
+  // 1. 创建并显示闪屏 (Splash Screen)
+  const splash = new BrowserWindow({
+    width: 600,
+    height: 400,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    center: true,
+    resizable: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  })
+
+  // 闪屏内容，优先从构建后的路径读取图片
+  const appPath = app.getAppPath()
+  const imagePath = path.join(appPath, 'dist', 'assets', 'grainmap.jpg')
+  const imagePathAlt = path.join(appPath, 'public', 'assets', 'grainmap.jpg')
+  const finalImagePath = fs.existsSync(imagePath) ? imagePath : imagePathAlt
+
+  const splashHtml = `
+    <html>
+      <body style="margin: 0; display: flex; align-items: center; justify-content: center; background: transparent; overflow: hidden;">
+        <img src="file://${finalImagePath}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 20px; box-shadow: 0 20px 50px rgba(0,0,0,0.3);" />
+      </body>
+    </html>
+  `
+  splash.loadURL(\`data:text/html;charset=utf-8,\${encodeURIComponent(splashHtml)}\`)
 
   const mainWindow = new BrowserWindow({
     width: 1400,
@@ -77,9 +103,11 @@ const createWindow = () => {
     }
   }
 
-  mainWindow.once('ready-to-show', () => {
+  // 1.5 秒后关闭闪屏，显示主窗口
+  setTimeout(() => {
+    if (!splash.isDestroyed()) splash.close()
     mainWindow.show()
-  })
+  }, 1500)
 }
 
 app.whenReady().then(async () => {
@@ -322,8 +350,8 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('file:exportData', async (_, data: any) => {
     const result = await dialog.showSaveDialog({
-      defaultPath: `grainmap-export-${new Date().toISOString().split('T')[0]}.gmap`,
-      filters: [{ name: 'Grainmap Export', extensions: ['gmap'] }],
+      defaultPath: `grainmap-export-${new Date().toISOString().split('T')[0]}.grainmap`,
+      filters: [{ name: 'Grainmap Export', extensions: ['grainmap'] }],
     })
 
     if (result.canceled) return false
@@ -363,7 +391,18 @@ app.whenReady().then(async () => {
                 gps[piexif.GPSIFD.GPSLongitudeRef] = photo.longitude >= 0 ? 'E' : 'W'
                 gps[piexif.GPSIFD.GPSLongitude] = degToRational(photo.longitude)
 
+                const exif: any = {}
+                // UserComment needs to be prefixed with 'ASCII\0\0\0' for standard compatibility
+                if (photo.aiGeneratedText) {
+                  exif[piexif.ExifIFD.UserComment] = [84, 101, 120, 116, 0, 0, 0, 0, ...Buffer.from(photo.aiGeneratedText, 'utf8')]
+                }
+
                 const zeroth: any = {}
+                // Add title to ImageDescription
+                if (photo.title) {
+                  zeroth[piexif.ImageIFD.ImageDescription] = photo.title
+                }
+
                 // Add original date if available
                 if (photo.createdAt) {
                   const date = new Date(photo.createdAt)
@@ -371,7 +410,7 @@ app.whenReady().then(async () => {
                   zeroth[piexif.ImageIFD.DateTime] = dateStr
                 }
 
-                const exifObj = { '0th': zeroth, 'GPS': gps }
+                const exifObj = { '0th': zeroth, 'Exif': exif, 'GPS': gps }
                 const exifBytes = piexif.dump(exifObj)
                 const newJpegData = piexif.insert(exifBytes, jpegData)
                 const newBuffer = Buffer.from(newJpegData.split(',')[1], 'base64')
@@ -395,7 +434,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('file:importData', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
-      filters: [{ name: 'Grainmap Export', extensions: ['gmap'] }],
+      filters: [{ name: 'Grainmap Export', extensions: ['grainmap'] }],
     })
 
     if (result.canceled || result.filePaths.length === 0) return null

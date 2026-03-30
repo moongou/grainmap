@@ -190,6 +190,21 @@ div[ref*="mapContainerRef"] {
   }
 }
 
+@keyframes scaleUp {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-scale-up {
+  animation: scaleUp 0.2s ease-out forwards;
+}
+
 /* Button styles */
 .btn-primary {
   @apply px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors;
@@ -259,15 +274,15 @@ div[ref*="mapContainerRef"] {
 /* Preview emergence animation */
 @keyframes thumbnail-emerge {
   0% {
-    transform: scale(0) translate(var(--tw-translate-x), var(--tw-translate-y));
+    transform: scale(0);
     opacity: 0;
   }
   100% {
-    transform: scale(1) translate(0, 0);
+    transform: scale(1);
     opacity: 1;
   }
 }
 
 .animate-thumbnail-emerge {
-  animation: thumbnail-emerge 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: thumbnail-emerge 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
