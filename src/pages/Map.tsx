@@ -72,7 +72,6 @@ function Map({ user, onLogout }: MapProps) {
   const [mapLoading, setMapLoading] = useState(true);
   const [mapError, setMapError] = useState('');
   const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
   const [mapType, setMapType] = useState<'standard' | 'satellite'>('standard');
   const [mapProvider, setMapProvider] = useState<MapProvider>('tencent');
   const [isEditing, setIsEditing] = useState(false);
