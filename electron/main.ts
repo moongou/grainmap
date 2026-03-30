@@ -28,36 +28,7 @@ protocol.registerSchemesAsPrivileged([
 
 const createWindow = () => {
   const preloadPath = path.join(app.getAppPath(), 'dist-electron', 'preload.js')
-
-  // 1. 创建并显示闪屏 (Splash Screen)
-  const splash = new BrowserWindow({
-    width: 600,
-    height: 400,
-    transparent: true,
-    frame: false,
-    alwaysOnTop: true,
-    center: true,
-    resizable: false,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true
-    }
-  })
-
-  // 闪屏内容，优先从构建后的路径读取图片
   const appPath = app.getAppPath()
-  const imagePath = path.join(appPath, 'dist', 'assets', 'grainmap.jpg')
-  const imagePathAlt = path.join(appPath, 'public', 'assets', 'grainmap.jpg')
-  const finalImagePath = fs.existsSync(imagePath) ? imagePath : imagePathAlt
-
-  const splashHtml = `
-    <html>
-      <body style="margin: 0; display: flex; align-items: center; justify-content: center; background: transparent; overflow: hidden;">
-        <img src="file://${finalImagePath}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 20px; box-shadow: 0 20px 50px rgba(0,0,0,0.3);" />
-      </body>
-    </html>
-  `
-  splash.loadURL(\`data:text/html;charset=utf-8,\${encodeURIComponent(splashHtml)}\`)
 
   const mainWindow = new BrowserWindow({
     width: 1400,
@@ -68,13 +39,12 @@ const createWindow = () => {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: true, // Keep secure but use custom protocol
+      webSecurity: true,
     },
     titleBarStyle: 'hiddenInset',
-    show: false,
+    show: true,
   })
 
-  // Determine if we're in development or production
   const isDev = process.env.VITE_DEV_SERVER_URL || !app.isPackaged
 
   if (isDev) {
@@ -82,7 +52,6 @@ const createWindow = () => {
     mainWindow.loadURL(url)
     mainWindow.webContents.openDevTools()
   } else {
-    const appPath = app.getAppPath()
     const possiblePaths = [
       path.join(appPath, 'dist/index.html'),
       path.join(appPath, '../dist/index.html'),
@@ -102,12 +71,6 @@ const createWindow = () => {
       mainWindow.loadFile(path.join(process.cwd(), 'dist/index.html'))
     }
   }
-
-  // 1.5 秒后关闭闪屏，显示主窗口
-  setTimeout(() => {
-    if (!splash.isDestroyed()) splash.close()
-    mainWindow.show()
-  }, 1500)
 }
 
 app.whenReady().then(async () => {
@@ -260,245 +223,245 @@ app.whenReady().then(async () => {
     }
   })
 
-  // File operations
-  ipcMain.handle('file:selectImage', async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openFile', 'multiSelections'],
-      filters: [
-        { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] },
-      ],
-    })
+// File operations
+ipcMain.handle('file:selectImage', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] },
+    ],
+  })
 
-    if (!result.canceled && result.filePaths.length > 0) {
-      const photos = []
+  if (!result.canceled && result.filePaths.length > 0) {
+    const photos = []
 
-      for (const filePath of result.filePaths) {
-        const buffer = fs.readFileSync(filePath)
-        const base64 = buffer.toString('base64')
-        const ext = path.extname(filePath).toLowerCase()
-        const mimeType = ext === '.png' ? 'image/png' :
-                         ext === '.gif' ? 'image/gif' :
-                         ext === '.webp' ? 'image/webp' : 'image/jpeg'
+    for (const filePath of result.filePaths) {
+      const buffer = fs.readFileSync(filePath)
+      const base64 = buffer.toString('base64')
+      const ext = path.extname(filePath).toLowerCase()
+      const mimeType = ext === '.png' ? 'image/png' :
+                       ext === '.gif' ? 'image/gif' :
+                       ext === '.webp' ? 'image/webp' : 'image/jpeg'
 
-        // Try to extract EXIF data
-        let exifData = null
-        try {
-          if (ext === '.jpg' || ext === '.jpeg') {
-            exifData = await exifr.parse(buffer, {
-              gps: true,
-              tiff: true,
-            })
-          }
-        } catch (err) {
-          console.error('EXIF extraction error:', err)
+      // Try to extract EXIF data
+      let exifData = null
+      try {
+        if (ext === '.jpg' || ext === '.jpeg') {
+          exifData = await exifr.parse(buffer, {
+            gps: true,
+            tiff: true,
+          })
+        }
+      } catch (err) {
+        console.error('EXIF extraction error:', err)
+      }
+
+      photos.push({
+        path: filePath,
+        data: `data:${mimeType};base64,${base64}`,
+        name: path.basename(filePath),
+        exif: exifData ? {
+          latitude: exifData.latitude,
+          longitude: exifData.longitude,
+          dateTime: exifData.DateTimeOriginal || exifData.CreateDate || null,
+        } : null,
+      })
+    }
+
+    return photos
+  }
+  return null
+})
+
+ipcMain.handle('file:saveImage', async (_, imageData: string, userId: string) => {
+  const userDataPath = path.join(app.getPath('userData'), 'photos', userId)
+  if (!fs.existsSync(userDataPath)) {
+    fs.mkdirSync(userDataPath, { recursive: true })
+  }
+
+  const photoId = crypto.randomUUID()
+  const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '')
+  const buffer = Buffer.from(base64Data, 'base64')
+  const fileName = `${photoId}.jpg`
+  const filePath = path.join(userDataPath, fileName)
+
+  fs.writeFileSync(filePath, buffer)
+
+  return {
+    id: photoId,
+    path: `app-data://photos/${userId}/${fileName}`, // Use custom protocol
+    absolutePath: filePath,
+  }
+})
+
+ipcMain.handle('file:deleteImage', async (_, filePath: string) => {
+  try {
+    let absolutePath = filePath
+    if (filePath.startsWith('app-data://')) {
+      absolutePath = path.join(app.getPath('userData'), filePath.slice('app-data://'.length))
+    }
+
+    if (fs.existsSync(absolutePath)) {
+      fs.unlinkSync(absolutePath)
+    }
+    return true
+  } catch (error) {
+    console.error('Delete image error:', error)
+    return false
+  }
+})
+
+ipcMain.handle('file:exportData', async (_, data: any) => {
+  const result = await dialog.showSaveDialog({
+    defaultPath: `grainmap-export-${new Date().toISOString().split('T')[0]}.grainmap`,
+    filters: [{ name: 'Grainmap Export', extensions: ['grainmap'] }],
+  })
+
+  if (result.canceled) return false
+
+  const exportFilePath = result.filePath
+  const output = fs.createWriteStream(exportFilePath)
+  const archive = archiver('zip', { zlib: { level: 9 } })
+
+  return new Promise((resolve, reject) => {
+    output.on('close', () => resolve(true))
+    archive.on('error', (err: Error) => reject(err))
+
+    archive.pipe(output)
+    archive.append(JSON.stringify(data, null, 2), { name: 'data.json' })
+
+    if (data.photos && Array.isArray(data.photos)) {
+      for (const photo of data.photos) {
+        let photoPath = photo.imagePath
+        if (photoPath.startsWith('app-data://')) {
+          photoPath = path.join(app.getPath('userData'), photoPath.slice('app-data://'.length))
         }
 
-        photos.push({
-          path: filePath,
-          data: `data:${mimeType};base64,${base64}`,
-          name: path.basename(filePath),
-          exif: exifData ? {
-            latitude: exifData.latitude,
-            longitude: exifData.longitude,
-            dateTime: exifData.DateTimeOriginal || exifData.CreateDate || null,
-          } : null,
-        })
-      }
+        if (fs.existsSync(photoPath)) {
+          const fileName = path.basename(photoPath)
+          const ext = path.extname(photoPath).toLowerCase()
 
-      return photos
-    }
-    return null
-  })
+          // For JPEGs, inject EXIF data
+          if (ext === '.jpg' || ext === '.jpeg') {
+            try {
+              const imageBuffer = fs.readFileSync(photoPath)
+              const imageBase64 = imageBuffer.toString('base64')
+              const jpegData = `data:image/jpeg;base64,${imageBase64}`
 
-  ipcMain.handle('file:saveImage', async (_, imageData: string, userId: string) => {
-    const userDataPath = path.join(app.getPath('userData'), 'photos', userId)
-    if (!fs.existsSync(userDataPath)) {
-      fs.mkdirSync(userDataPath, { recursive: true })
-    }
+              const gps: any = {}
+              gps[piexif.GPSIFD.GPSLatitudeRef] = photo.latitude >= 0 ? 'N' : 'S'
+              gps[piexif.GPSIFD.GPSLatitude] = degToRational(photo.latitude)
+              gps[piexif.GPSIFD.GPSLongitudeRef] = photo.longitude >= 0 ? 'E' : 'W'
+              gps[piexif.GPSIFD.GPSLongitude] = degToRational(photo.longitude)
 
-    const photoId = crypto.randomUUID()
-    const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '')
-    const buffer = Buffer.from(base64Data, 'base64')
-    const fileName = `${photoId}.jpg`
-    const filePath = path.join(userDataPath, fileName)
-
-    fs.writeFileSync(filePath, buffer)
-
-    return {
-      id: photoId,
-      path: `app-data://photos/${userId}/${fileName}`, // Use custom protocol
-      absolutePath: filePath,
-    }
-  })
-
-  ipcMain.handle('file:deleteImage', async (_, filePath: string) => {
-    try {
-      let absolutePath = filePath
-      if (filePath.startsWith('app-data://')) {
-        absolutePath = path.join(app.getPath('userData'), filePath.slice('app-data://'.length))
-      }
-
-      if (fs.existsSync(absolutePath)) {
-        fs.unlinkSync(absolutePath)
-      }
-      return true
-    } catch (error) {
-      console.error('Delete image error:', error)
-      return false
-    }
-  })
-
-  ipcMain.handle('file:exportData', async (_, data: any) => {
-    const result = await dialog.showSaveDialog({
-      defaultPath: `grainmap-export-${new Date().toISOString().split('T')[0]}.grainmap`,
-      filters: [{ name: 'Grainmap Export', extensions: ['grainmap'] }],
-    })
-
-    if (result.canceled) return false
-
-    const exportFilePath = result.filePath
-    const output = fs.createWriteStream(exportFilePath)
-    const archive = archiver('zip', { zlib: { level: 9 } })
-
-    return new Promise((resolve, reject) => {
-      output.on('close', () => resolve(true))
-      archive.on('error', (err: Error) => reject(err))
-
-      archive.pipe(output)
-      archive.append(JSON.stringify(data, null, 2), { name: 'data.json' })
-
-      if (data.photos && Array.isArray(data.photos)) {
-        for (const photo of data.photos) {
-          let photoPath = photo.imagePath
-          if (photoPath.startsWith('app-data://')) {
-            photoPath = path.join(app.getPath('userData'), photoPath.slice('app-data://'.length))
-          }
-
-          if (fs.existsSync(photoPath)) {
-            const fileName = path.basename(photoPath)
-            const ext = path.extname(photoPath).toLowerCase()
-
-            // For JPEGs, inject EXIF data
-            if (ext === '.jpg' || ext === '.jpeg') {
-              try {
-                const imageBuffer = fs.readFileSync(photoPath)
-                const imageBase64 = imageBuffer.toString('base64')
-                const jpegData = `data:image/jpeg;base64,${imageBase64}`
-
-                const gps: any = {}
-                gps[piexif.GPSIFD.GPSLatitudeRef] = photo.latitude >= 0 ? 'N' : 'S'
-                gps[piexif.GPSIFD.GPSLatitude] = degToRational(photo.latitude)
-                gps[piexif.GPSIFD.GPSLongitudeRef] = photo.longitude >= 0 ? 'E' : 'W'
-                gps[piexif.GPSIFD.GPSLongitude] = degToRational(photo.longitude)
-
-                const exif: any = {}
-                // UserComment needs to be prefixed with 'ASCII\0\0\0' for standard compatibility
-                if (photo.aiGeneratedText) {
-                  exif[piexif.ExifIFD.UserComment] = [84, 101, 120, 116, 0, 0, 0, 0, ...Buffer.from(photo.aiGeneratedText, 'utf8')]
-                }
-
-                const zeroth: any = {}
-                // Add title to ImageDescription
-                if (photo.title) {
-                  zeroth[piexif.ImageIFD.ImageDescription] = photo.title
-                }
-
-                // Add original date if available
-                if (photo.createdAt) {
-                  const date = new Date(photo.createdAt)
-                  const dateStr = date.toISOString().replace(/T/, ' ').replace(/\..+/, '').replace(/-/g, ':')
-                  zeroth[piexif.ImageIFD.DateTime] = dateStr
-                }
-
-                const exifObj = { '0th': zeroth, 'Exif': exif, 'GPS': gps }
-                const exifBytes = piexif.dump(exifObj)
-                const newJpegData = piexif.insert(exifBytes, jpegData)
-                const newBuffer = Buffer.from(newJpegData.split(',')[1], 'base64')
-
-                archive.append(newBuffer, { name: `photos/${fileName}` })
-              } catch (err) {
-                console.error(`Error injecting EXIF for ${fileName}:`, err)
-                archive.file(photoPath, { name: `photos/${fileName}` })
+              const exif: any = {}
+              // UserComment needs to be prefixed with 'ASCII\0\0\0' for standard compatibility
+              if (photo.aiGeneratedText) {
+                exif[piexif.ExifIFD.UserComment] = [84, 101, 120, 116, 0, 0, 0, 0, ...Buffer.from(photo.aiGeneratedText, 'utf8')]
               }
-            } else {
+
+              const zeroth: any = {}
+              // Add title to ImageDescription
+              if (photo.title) {
+                zeroth[piexif.ImageIFD.ImageDescription] = photo.title
+              }
+
+              // Add original date if available
+              if (photo.createdAt) {
+                const date = new Date(photo.createdAt)
+                const dateStr = date.toISOString().replace(/T/, ' ').replace(/\..+/, '').replace(/-/g, ':')
+                zeroth[piexif.ImageIFD.DateTime] = dateStr
+              }
+
+              const exifObj = { '0th': zeroth, 'Exif': exif, 'GPS': gps }
+              const exifBytes = piexif.dump(exifObj)
+              const newJpegData = piexif.insert(exifBytes, jpegData)
+              const newBuffer = Buffer.from(newJpegData.split(',')[1], 'base64')
+
+              archive.append(newBuffer, { name: `photos/${fileName}` })
+            } catch (err) {
+              console.error(`Error injecting EXIF for ${fileName}:`, err)
               archive.file(photoPath, { name: `photos/${fileName}` })
             }
+          } else {
+            archive.file(photoPath, { name: `photos/${fileName}` })
           }
         }
       }
-
-      archive.finalize()
-    })
-  })
-
-  ipcMain.handle('file:importData', async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openFile'],
-      filters: [{ name: 'Grainmap Export', extensions: ['grainmap'] }],
-    })
-
-    if (result.canceled || result.filePaths.length === 0) return null
-
-    const importFilePath = result.filePaths[0]
-    const tempDir = path.join(app.getPath('temp'), `grainmap-import-${crypto.randomUUID()}`)
-    fs.mkdirSync(tempDir, { recursive: true })
-
-    try {
-      await extract(importFilePath, { dir: tempDir })
-
-      const dataPath = path.join(tempDir, 'data.json')
-      if (!fs.existsSync(dataPath)) {
-        throw new Error('Invalid export file: missing data.json')
-      }
-
-      const content = fs.readFileSync(dataPath, 'utf-8')
-      const data = JSON.parse(content)
-
-      const photosDir = path.join(tempDir, 'photos')
-      if (fs.existsSync(photosDir)) {
-        const targetBaseDir = path.join(app.getPath('userData'), 'photos')
-
-        for (const photo of data.photos) {
-          const fileName = photo.imagePath.split('/').pop() || `${crypto.randomUUID()}.jpg`
-          const srcPath = path.join(photosDir, fileName)
-
-          if (fs.existsSync(srcPath)) {
-            const targetDir = path.join(targetBaseDir, 'imported')
-            if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true })
-
-            const targetPath = path.join(targetDir, fileName)
-            fs.copyFileSync(srcPath, targetPath)
-            photo.imagePath = `app-data://photos/imported/${fileName}`
-          }
-        }
-      }
-
-      fs.rmSync(tempDir, { recursive: true, force: true })
-      return data
-    } catch (error) {
-      console.error('Import error:', error)
-      if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true })
-      throw error
     }
-  })
 
-  // Store operations for settings
-  ipcMain.handle('store:get', async (_, key: string) => {
-    return (store as any).get(key)
-  })
-
-  ipcMain.handle('store:set', async (_, key: string, value: any) => {
-    ;(store as any).set(key, value)
-    return true
-  })
-
-  createWindow()
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    archive.finalize()
   })
 })
 
+ipcMain.handle('file:importData', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [{ name: 'Grainmap Export', extensions: ['grainmap'] }],
+  })
+
+  if (result.canceled || result.filePaths.length === 0) return null
+
+  const importFilePath = result.filePaths[0]
+  const tempDir = path.join(app.getPath('temp'), `grainmap-import-${crypto.randomUUID()}`)
+  fs.mkdirSync(tempDir, { recursive: true })
+
+  try {
+    await extract(importFilePath, { dir: tempDir })
+
+    const dataPath = path.join(tempDir, 'data.json')
+    if (!fs.existsSync(dataPath)) {
+      throw new Error('Invalid export file: missing data.json')
+    }
+
+    const content = fs.readFileSync(dataPath, 'utf-8')
+    const data = JSON.parse(content)
+
+    const photosDir = path.join(tempDir, 'photos')
+    if (fs.existsSync(photosDir)) {
+      const targetBaseDir = path.join(app.getPath('userData'), 'photos')
+
+      for (const photo of data.photos) {
+        const fileName = photo.imagePath.split('/').pop() || `${crypto.randomUUID()}.jpg`
+        const srcPath = path.join(photosDir, fileName)
+
+        if (fs.existsSync(srcPath)) {
+          const targetDir = path.join(targetBaseDir, 'imported')
+          if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true })
+
+          const targetPath = path.join(targetDir, fileName)
+          fs.copyFileSync(srcPath, targetPath)
+          photo.imagePath = `app-data://photos/imported/${fileName}`
+        }
+      }
+    }
+
+    fs.rmSync(tempDir, { recursive: true, force: true })
+    return data
+  } catch (error) {
+    console.error('Import error:', error)
+    if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true })
+    throw error
+  }
+})
+
+// Store operations for settings
+ipcMain.handle('store:get', async (_, key: string) => {
+  return (store as any).get(key)
+})
+
+ipcMain.handle('store:set', async (_, key: string, value: any) => {
+  ;(store as any).set(key, value)
+  return true
+})
+
+createWindow()
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow()
+})
+})
+
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+if (process.platform !== 'darwin') app.quit()
 })

@@ -398,21 +398,27 @@ function Settings({ user }: SettingsProps) {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col md:flex-row gap-8">
           {/* Logo Sidebar */}
-          <div className="w-full md:w-80 flex-shrink-0">
+          <div className="w-full md:w-[22rem] flex-shrink-0">
             <div className="bg-white rounded-3xl shadow-xl p-4 border border-gray-100 sticky top-0 overflow-hidden group">
               <div className="absolute -inset-2 bg-primary-500/5 blur-2xl group-hover:bg-primary-500/10 transition-colors" />
-              <img
-                src="assets/grainmap-logo.jpg"
-                alt="Grainmap Logo"
-                className="relative w-full rounded-2xl shadow-inner object-contain"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.src = "https://ui-avatars.com/api/?name=Grainmap&background=1e3a8a&color=fff&size=512";
-                }}
-              />
+              <div className="px-2">
+                <img
+                  src="assets/grainmap-logo.jpg"
+                  alt="Grainmap Logo"
+                  className="relative w-full rounded-2xl shadow-inner object-contain"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src = "https://ui-avatars.com/api/?name=Grainmap&background=1e3a8a&color=fff&size=512";
+                  }}
+                />
+              </div>
               <div className="mt-4 px-2">
                 <h3 className="text-lg font-bold text-gray-900">Grainmap</h3>
                 <p className="text-xs text-gray-500 mt-1 leading-relaxed">记录每一颗被点亮的足迹，编织属于你的地理记忆。</p>
+                <div className="mt-4 space-y-1 text-[10px] text-gray-400 text-right leading-snug">
+                  <p className="whitespace-nowrap tracking-[0.01em]">Powered by Milegolden, issued on Rainforgrain.</p>
+                  <p>2026,4,20</p>
+                </div>
               </div>
             </div>
           </div>

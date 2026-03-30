@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "archiver": "^7.0.1",
+    "archiver-utils": "^5.0.2",
     "better-sqlite3": "^12.0.0",
     "electron-store": "^10.0.0",
     "exifr": "^7.1.3",
@@ -65,19 +66,19 @@
       "dist-electron/**/*",
       "node_modules/**/*"
     ],
+    "asar": true,
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**/*"
+    ],
     "mac": {
+      "identity": null,
       "category": "public.app-category.photography",
       "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
+        "dmg"
       ]
     },
     "win": {
+      "icon": "public/assets/grainmap.jpg",
       "target": [
         {
           "target": "nsis",
@@ -86,15 +87,11 @@
           ]
         }
       ],
-      "icon": "public/assets/grainmap-logo.jpg",
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "public/assets/grainmap-logo.jpg",
-      "uninstallerIcon": "public/assets/grainmap-logo.jpg",
-      "installerHeaderIcon": "public/assets/grainmap-logo.jpg",
       "installerSidebar": "public/assets/installation-guide.png",
       "uninstallerSidebar": "public/assets/installation-guide.png",
       "createDesktopShortcut": true,
