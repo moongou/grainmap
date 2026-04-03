@@ -22,6 +22,7 @@ export interface Photo {
   longitude: number
   address: string
   aiGeneratedText: string
+  photoDate: string | null
   createdAt: string
   updatedAt: string
 }
@@ -122,6 +123,7 @@ class AppDatabase {
         longitude REAL NOT NULL,
         address TEXT,
         ai_generated_text TEXT,
+        photo_date TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -131,12 +133,21 @@ class AppDatabase {
     // Migration for existing photos table: add album_id column if it doesn't exist
     const photoTableInfo = this.db.prepare("PRAGMA table_info(photos)").all() as any[]
     const hasAlbumId = photoTableInfo.some(col => col.name === 'album_id')
+    const hasPhotoDate = photoTableInfo.some(col => col.name === 'photo_date')
     if (!hasAlbumId) {
       try {
         this.db.exec('ALTER TABLE photos ADD COLUMN album_id TEXT')
         console.log('Added album_id column to photos table')
       } catch (err) {
         console.error('Migration error: could not add album_id column', err)
+      }
+    }
+    if (!hasPhotoDate) {
+      try {
+        this.db.exec('ALTER TABLE photos ADD COLUMN photo_date TEXT')
+        console.log('Added photo_date column to photos table')
+      } catch (err) {
+        console.error('Migration error: could not add photo_date column', err)
       }
     }
 
@@ -240,8 +251,8 @@ class AppDatabase {
     const now = new Date().toISOString()
 
     const stmt = this.db.prepare(`
-      INSERT INTO photos (id, user_id, album_id, title, description, image_path, latitude, longitude, address, ai_generated_text, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO photos (id, user_id, album_id, title, description, image_path, latitude, longitude, address, ai_generated_text, photo_date, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     stmt.run(
@@ -255,6 +266,7 @@ class AppDatabase {
       photo.longitude,
       photo.address || null,
       photo.aiGeneratedText || null,
+      photo.photoDate || null,
       now,
       now
     )
@@ -270,6 +282,7 @@ class AppDatabase {
       longitude: photo.longitude,
       address: photo.address,
       aiGeneratedText: photo.aiGeneratedText,
+      photoDate: photo.photoDate || null,
       createdAt: now,
       updatedAt: now,
     }
@@ -292,6 +305,7 @@ class AppDatabase {
       longitude: row.longitude,
       address: row.address,
       aiGeneratedText: row.ai_generated_text,
+      photoDate: row.photo_date,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }))
@@ -314,6 +328,7 @@ class AppDatabase {
       longitude: row.longitude,
       address: row.address,
       aiGeneratedText: row.ai_generated_text,
+      photoDate: row.photo_date,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }))
@@ -358,6 +373,10 @@ class AppDatabase {
       updates.push('ai_generated_text = ?')
       values.push(photo.aiGeneratedText)
     }
+    if (photo.photoDate !== undefined) {
+      updates.push('photo_date = ?')
+      values.push(photo.photoDate)
+    }
 
     updates.push('updated_at = ?')
     values.push(now)
@@ -391,6 +410,7 @@ class AppDatabase {
       longitude: row.longitude,
       address: row.address,
       aiGeneratedText: row.ai_generated_text,
+      photoDate: row.photo_date,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }

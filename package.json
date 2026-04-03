@@ -92,8 +92,6 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerSidebar": "public/assets/installation-guide.png",
-      "uninstallerSidebar": "public/assets/installation-guide.png",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Grainmap"

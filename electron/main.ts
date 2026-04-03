@@ -42,7 +42,7 @@ const createWindow = () => {
       webSecurity: true,
     },
     titleBarStyle: 'hiddenInset',
-    show: true,
+    show: process.platform !== 'win32',
   })
 
   const isDev = process.env.VITE_DEV_SERVER_URL || !app.isPackaged
@@ -70,6 +70,38 @@ const createWindow = () => {
     if (!found) {
       mainWindow.loadFile(path.join(process.cwd(), 'dist/index.html'))
     }
+  }
+
+  if (process.platform === 'win32') {
+    const splash = new BrowserWindow({
+      width: 720,
+      height: 420,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      resizable: false,
+      movable: false,
+      skipTaskbar: true,
+      show: true,
+    })
+
+    splash.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+      <html>
+        <body style="margin:0;background:transparent;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+          <img src="file://${path.join(app.getAppPath(), 'public', 'assets', 'installation-guide.png')}" style="width:100%;height:100%;object-fit:cover;opacity:1;transition:opacity .6s ease;" id="splash" />
+          <script>
+            setTimeout(() => {
+              document.getElementById('splash').style.opacity = '0';
+            }, 1000);
+          </script>
+        </body>
+      </html>
+    `)}`)
+
+    setTimeout(() => {
+      splash.close()
+      mainWindow.show()
+    }, 1600)
   }
 }
 
@@ -171,23 +203,13 @@ app.whenReady().then(async () => {
     let url = apiUrl || ''
 
     try {
-      if (provider === 'claude') {
-        // Claude typically doesn't have a simple public models list API like OpenAI
-        return {
-          success: true,
-          models: ['claude-3-5-sonnet-20240620', 'claude-3-opus-20240229', 'claude-3-haiku-20240307']
-        }
-      }
-
       let fetchUrl = url
       if (provider === 'ollama') {
-        // Ollama tags endpoint
         fetchUrl = url.replace(/\/api\/chat$/, '').replace(/\/$/, '') + '/api/tags'
       } else {
-        // OpenAI compatible /v1/models
         if (!fetchUrl.endsWith('/models')) {
           fetchUrl = fetchUrl.replace(/\/chat\/completions$/, '').replace(/\/v1\/chat\/completions$/, '').replace(/\/$/, '')
-          if (!fetchUrl.endsWith('/v1')) fetchUrl += '/v1'
+          if (!fetchUrl.endsWith('/v1') && !fetchUrl.includes('/compatible-mode/v1') && !fetchUrl.includes('/api/paas/v4')) fetchUrl += '/v1'
           fetchUrl += '/models'
         }
       }
@@ -207,14 +229,9 @@ app.whenReady().then(async () => {
       }
 
       const data: any = await response.json()
-      let models: string[] = []
-
-      if (provider === 'ollama') {
-        models = data.models?.map((m: any) => m.name) || []
-      } else {
-        // OpenAI format
-        models = data.data?.map((m: any) => m.id) || []
-      }
+      const models = provider === 'ollama'
+        ? data.models?.map((m: any) => m.name) || []
+        : data.data?.map((m: any) => m.id) || []
 
       return { success: true, models }
     } catch (error: any) {
@@ -264,6 +281,9 @@ ipcMain.handle('file:selectImage', async () => {
           latitude: exifData.latitude,
           longitude: exifData.longitude,
           dateTime: exifData.DateTimeOriginal || exifData.CreateDate || null,
+          photoDate: exifData.DateTimeOriginal || exifData.CreateDate
+            ? new Date(exifData.DateTimeOriginal || exifData.CreateDate).toISOString().slice(0, 10)
+            : null,
         } : null,
       })
     }
@@ -311,7 +331,7 @@ ipcMain.handle('file:deleteImage', async (_, filePath: string) => {
   }
 })
 
-ipcMain.handle('file:exportData', async (_, data: any) => {
+ipcMain.handle('file:exportData', async (_, rawData: any) => {
   const result = await dialog.showSaveDialog({
     defaultPath: `grainmap-export-${new Date().toISOString().split('T')[0]}.grainmap`,
     filters: [{ name: 'Grainmap Export', extensions: ['grainmap'] }],
@@ -322,74 +342,81 @@ ipcMain.handle('file:exportData', async (_, data: any) => {
   const exportFilePath = result.filePath
   const output = fs.createWriteStream(exportFilePath)
   const archive = archiver('zip', { zlib: { level: 9 } })
+  const data = {
+    ...rawData,
+    photos: Array.isArray(rawData.photos)
+      ? rawData.photos.map((photo: any) => ({ ...photo }))
+      : [],
+  }
 
   return new Promise((resolve, reject) => {
     output.on('close', () => resolve(true))
     archive.on('error', (err: Error) => reject(err))
 
     archive.pipe(output)
-    archive.append(JSON.stringify(data, null, 2), { name: 'data.json' })
 
-    if (data.photos && Array.isArray(data.photos)) {
+    if (Array.isArray(data.photos)) {
       for (const photo of data.photos) {
         let photoPath = photo.imagePath
         if (photoPath.startsWith('app-data://')) {
           photoPath = path.join(app.getPath('userData'), photoPath.slice('app-data://'.length))
         }
 
-        if (fs.existsSync(photoPath)) {
-          const fileName = path.basename(photoPath)
-          const ext = path.extname(photoPath).toLowerCase()
+        if (!fs.existsSync(photoPath)) {
+          continue
+        }
 
-          // For JPEGs, inject EXIF data
-          if (ext === '.jpg' || ext === '.jpeg') {
-            try {
-              const imageBuffer = fs.readFileSync(photoPath)
-              const imageBase64 = imageBuffer.toString('base64')
-              const jpegData = `data:image/jpeg;base64,${imageBase64}`
+        const ext = path.extname(photoPath).toLowerCase() || '.jpg'
+        const exportFileName = `${photo.id || crypto.randomUUID()}${ext}`
+        const assetPath = `photos/${exportFileName}`
+        photo.exportAssetPath = assetPath
 
-              const gps: any = {}
-              gps[piexif.GPSIFD.GPSLatitudeRef] = photo.latitude >= 0 ? 'N' : 'S'
-              gps[piexif.GPSIFD.GPSLatitude] = degToRational(photo.latitude)
-              gps[piexif.GPSIFD.GPSLongitudeRef] = photo.longitude >= 0 ? 'E' : 'W'
-              gps[piexif.GPSIFD.GPSLongitude] = degToRational(photo.longitude)
+        if (ext === '.jpg' || ext === '.jpeg') {
+          try {
+            const imageBuffer = fs.readFileSync(photoPath)
+            const imageBase64 = imageBuffer.toString('base64')
+            const jpegData = `data:image/jpeg;base64,${imageBase64}`
 
-              const exif: any = {}
-              // UserComment needs to be prefixed with 'ASCII\0\0\0' for standard compatibility
-              if (photo.aiGeneratedText) {
-                exif[piexif.ExifIFD.UserComment] = [84, 101, 120, 116, 0, 0, 0, 0, ...Buffer.from(photo.aiGeneratedText, 'utf8')]
-              }
+            const gps: any = {}
+            gps[piexif.GPSIFD.GPSLatitudeRef] = photo.latitude >= 0 ? 'N' : 'S'
+            gps[piexif.GPSIFD.GPSLatitude] = degToRational(photo.latitude)
+            gps[piexif.GPSIFD.GPSLongitudeRef] = photo.longitude >= 0 ? 'E' : 'W'
+            gps[piexif.GPSIFD.GPSLongitude] = degToRational(photo.longitude)
 
-              const zeroth: any = {}
-              // Add title to ImageDescription
-              if (photo.title) {
-                zeroth[piexif.ImageIFD.ImageDescription] = photo.title
-              }
-
-              // Add original date if available
-              if (photo.createdAt) {
-                const date = new Date(photo.createdAt)
-                const dateStr = date.toISOString().replace(/T/, ' ').replace(/\..+/, '').replace(/-/g, ':')
-                zeroth[piexif.ImageIFD.DateTime] = dateStr
-              }
-
-              const exifObj = { '0th': zeroth, 'Exif': exif, 'GPS': gps }
-              const exifBytes = piexif.dump(exifObj)
-              const newJpegData = piexif.insert(exifBytes, jpegData)
-              const newBuffer = Buffer.from(newJpegData.split(',')[1], 'base64')
-
-              archive.append(newBuffer, { name: `photos/${fileName}` })
-            } catch (err) {
-              console.error(`Error injecting EXIF for ${fileName}:`, err)
-              archive.file(photoPath, { name: `photos/${fileName}` })
+            const exif: any = {}
+            if (photo.aiGeneratedText) {
+              exif[piexif.ExifIFD.UserComment] = [84, 101, 120, 116, 0, 0, 0, 0, ...Buffer.from(photo.aiGeneratedText, 'utf8')]
             }
-          } else {
-            archive.file(photoPath, { name: `photos/${fileName}` })
+
+            const zeroth: any = {}
+            if (photo.title) {
+              zeroth[piexif.ImageIFD.ImageDescription] = photo.title
+            }
+
+            const displayDate = photo.photoDate || photo.createdAt
+            if (displayDate) {
+              const date = new Date(displayDate)
+              const dateStr = date.toISOString().replace(/T/, ' ').replace(/\..+/, '').replace(/-/g, ':')
+              zeroth[piexif.ImageIFD.DateTime] = dateStr
+            }
+
+            const exifObj = { '0th': zeroth, 'Exif': exif, 'GPS': gps }
+            const exifBytes = piexif.dump(exifObj)
+            const newJpegData = piexif.insert(exifBytes, jpegData)
+            const newBuffer = Buffer.from(newJpegData.split(',')[1], 'base64')
+
+            archive.append(newBuffer, { name: assetPath })
+          } catch (err) {
+            console.error(`Error injecting EXIF for ${exportFileName}:`, err)
+            archive.file(photoPath, { name: assetPath })
           }
+        } else {
+          archive.file(photoPath, { name: assetPath })
         }
       }
     }
 
+    archive.append(JSON.stringify(data, null, 2), { name: 'data.json' })
     archive.finalize()
   })
 })
@@ -418,21 +445,26 @@ ipcMain.handle('file:importData', async () => {
     const data = JSON.parse(content)
 
     const photosDir = path.join(tempDir, 'photos')
-    if (fs.existsSync(photosDir)) {
-      const targetBaseDir = path.join(app.getPath('userData'), 'photos')
+    if (fs.existsSync(photosDir) && Array.isArray(data.photos)) {
+      const importBatchId = crypto.randomUUID()
+      const targetDir = path.join(app.getPath('userData'), 'photos', 'imported', importBatchId)
+      fs.mkdirSync(targetDir, { recursive: true })
 
       for (const photo of data.photos) {
-        const fileName = photo.imagePath.split('/').pop() || `${crypto.randomUUID()}.jpg`
-        const srcPath = path.join(photosDir, fileName)
+        const exportAssetPath = typeof photo.exportAssetPath === 'string' ? photo.exportAssetPath : ''
+        const preferredSrcPath = exportAssetPath ? path.join(tempDir, exportAssetPath) : ''
+        const legacyFileName = photo.imagePath?.split('/').pop() || `${crypto.randomUUID()}.jpg`
+        const legacySrcPath = path.join(photosDir, legacyFileName)
+        const srcPath = preferredSrcPath && fs.existsSync(preferredSrcPath) ? preferredSrcPath : legacySrcPath
 
-        if (fs.existsSync(srcPath)) {
-          const targetDir = path.join(targetBaseDir, 'imported')
-          if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true })
-
-          const targetPath = path.join(targetDir, fileName)
-          fs.copyFileSync(srcPath, targetPath)
-          photo.imagePath = `app-data://photos/imported/${fileName}`
+        if (!fs.existsSync(srcPath)) {
+          continue
         }
+
+        const fileName = path.basename(srcPath)
+        const targetPath = path.join(targetDir, fileName)
+        fs.copyFileSync(srcPath, targetPath)
+        photo.imagePath = `app-data://photos/imported/${importBatchId}/${fileName}`
       }
     }
 

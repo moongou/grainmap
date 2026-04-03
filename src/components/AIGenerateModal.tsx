@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { X, Sparkles, Loader2, Wand2 } from 'lucide-react';
+import { AIProvider } from '../types';
 
 interface AIGenerateModalProps {
   userId: string;
@@ -63,10 +64,9 @@ function AIGenerateModal({ userId, photoTitle, photoDescription, onClose, onGene
 
       // 调用AI API
       let response;
-      if (config.provider === 'openai' || config.provider === 'volcano') {
-        response = await callOpenAI(config.apiKey, config.apiUrl, config.model, prompt);
-      } else if (config.provider === 'claude') {
-        response = await callClaude(config.apiKey, config.apiUrl, config.model, prompt);
+      const openAICompatibleProviders: AIProvider[] = ['volcano', 'qwen', 'deepseek', 'zhipu'];
+      if (openAICompatibleProviders.includes(config.provider)) {
+        response = await callOpenAICompatible(config.apiKey, config.apiUrl, config.model, prompt);
       } else if (config.provider === 'ollama') {
         response = await callOllama(config.apiUrl, config.model, prompt);
       } else {
@@ -82,7 +82,7 @@ function AIGenerateModal({ userId, photoTitle, photoDescription, onClose, onGene
     }
   };
 
-  const callOpenAI = async (apiKey: string, apiUrl: string, model: string, prompt: string) => {
+  const callOpenAICompatible = async (apiKey: string, apiUrl: string, model: string, prompt: string) => {
     const url = apiUrl || 'https://api.openai.com/v1/chat/completions';
     const response = await fetch(url, {
       method: 'POST',
@@ -103,37 +103,11 @@ function AIGenerateModal({ userId, photoTitle, photoDescription, onClose, onGene
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error?.message || 'OpenAI/Volcano API error');
+      throw new Error(errorData.error?.message || 'OpenAI-compatible API error');
     }
 
     const data = await response.json();
     return data.choices[0].message.content;
-  };
-
-  const callClaude = async (apiKey: string, apiUrl: string, model: string, prompt: string) => {
-    const url = apiUrl || 'https://api.anthropic.com/v1/messages';
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: model || 'claude-3-haiku-20240307',
-        max_tokens: 500,
-        messages: [
-          { role: 'user', content: prompt },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Claude API error');
-    }
-
-    const data = await response.json();
-    return data.content[0].text;
   };
 
   const callOllama = async (apiUrl: string, model: string, prompt: string) => {

@@ -223,6 +223,16 @@ export default function EditView({
             />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">拍摄日期</label>
+            <input
+              type="date"
+              value={editData.photoDate || ''}
+              onChange={(e) => setEditData(prev => ({ ...prev, photoDate: e.target.value || null }))}
+              className="w-full bg-white border border-gray-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-200"
+            />
+          </div>
+
           {/* Address */}
           <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
             <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">地址 / 坐标</span>

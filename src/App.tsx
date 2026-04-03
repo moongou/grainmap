@@ -6,16 +6,13 @@ import Map from './pages/Map';
 import Settings from './pages/Settings';
 import BrowsePage from './pages/BrowsePage';
 import EditPage from './pages/EditPage';
-import InstallationGuide from './components/InstallationGuide';
 import { User } from './types';
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showInstallationGuide, setShowInstallationGuide] = useState(false);
 
   useEffect(() => {
-    // Check for stored user session and show installation guide on first launch
     const checkSession = async () => {
       if (!window.electronAPI) {
         setLoading(false);
@@ -26,13 +23,6 @@ function App() {
         const storedUser = await window.electronAPI.store.get('currentUser');
         if (storedUser) {
           setUser(storedUser);
-        }
-
-        // Check if installation guide has been shown
-        const guideShown = await window.electronAPI.store.get('installationGuideShown');
-        if (!guideShown) {
-          setShowInstallationGuide(true);
-          await window.electronAPI.store.set('installationGuideShown', true);
         }
       } catch (error) {
         console.error('Error checking session:', error);
@@ -123,9 +113,6 @@ function App() {
         />
         <Route path="/" element={<Navigate to={user ? "/map" : "/login"} replace />} />
       </Routes>
-      {showInstallationGuide && (
-        <InstallationGuide onClose={() => setShowInstallationGuide(false)} />
-      )}
     </div>
   );
 }

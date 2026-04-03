@@ -1,4 +1,5 @@
 export type MapProvider = 'tencent' | 'osm';
+export type AIProvider = 'volcano' | 'qwen' | 'deepseek' | 'zhipu' | 'ollama' | 'custom';
 
 export interface User {
   id: string;
@@ -20,6 +21,7 @@ export interface Photo {
   longitude: number;
   address: string;
   aiGeneratedText: string;
+  photoDate?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -36,7 +38,7 @@ export interface Album {
 export interface AIConfig {
   id: string;
   userId: string;
-  provider: 'openai' | 'claude' | 'ollama' | 'volcano' | 'custom';
+  provider: AIProvider;
   apiKey: string;
   apiUrl?: string;
   model?: string;

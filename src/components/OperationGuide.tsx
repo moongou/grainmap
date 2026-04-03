@@ -11,7 +11,7 @@ const sections: GuideSection[] = [
     title: '地图浏览',
     icon: <MapPin className="w-5 h-5" />,
     items: [
-      { title: '地图缩放', description: '使用鼠标滚轮可以放大或缩小地图。在地图上双击可放大，单击同时按住 Ctrl 可缩小。' },
+      { title: '地图缩放', description: '使用鼠标滚轮可以放大或缩小地图。在地图上双击可放大。' },
       { title: '地图平移', description: '点击并拖动地图可以平移查看不同区域。' },
       { title: '切换地图类型', description: '点击左下角的"标准"或"卫星"按钮可以在普通地图和卫星影像之间切换。' },
       { title: '查看照片位置', description: '地图上的标记点代表照片位置。点击标记可以查看照片详情。' },
@@ -42,8 +42,8 @@ const sections: GuideSection[] = [
     icon: <Eye className="w-5 h-5" />,
     items: [
       { title: '打开浏览相册', description: '在地图上点击照片标记，或在照片列表中点击照片，即可打开浏览相册。' },
-      { title: '照片导航', description: '使用键盘的上下方向键可以切换上一张/下一张照片。也可以点击照片两侧的箭头按钮。' },
-      { title: '照片与地图切换', description: '使用左右方向键可以互换照片和地图的显示位置。照片可以占据主显示区（70%），地图缩到次要位置（30%）。' },
+      { title: '照片导航', description: '使用键盘的左右方向键可以切换上一张/下一张照片。也可以点击照片两侧的箭头按钮。' },
+      { title: '照片与地图切换', description: '点击“切换主视图”按钮，或使用 Ctrl/Cmd + ↑ / ↓，可以互换照片和地图的主显示区域。' },
       { title: '全屏模式', description: '按 F 键或点击全屏按钮，可以让当前主显示内容（照片或地图）扩展到整个窗口。' },
       { title: '快速缩略图导航', description: '浏览相册顶部的缩略图条显示所有照片。点击任意缩略图可快速跳转到对应照片。' },
       { title: '排序方式', description: '点击排序按钮可以选择照片排序方式：按照片顺序（创建时间）、随机排序、或按距离（距当前照片最近）。' },
@@ -54,7 +54,7 @@ const sections: GuideSection[] = [
     icon: <Edit3 className="w-5 h-5" />,
     items: [
       { title: '进入编辑模式', description: '在浏览相册中点击"编辑"按钮，或在照片详情页点击"编辑"按钮，即可进入编辑模式。' },
-      { title: '修改照片信息', description: '在编辑模式左侧面板，可以修改照片的标题、描述、所属相册等信息。' },
+      { title: '修改照片信息', description: '在编辑模式左侧面板，可以修改照片的标题、描述、拍摄日期、所属相册等信息。' },
       { title: '调整照片位置', description: '在右侧地图上点击新位置，即可更新照片的经纬度坐标。也可以直接输入坐标值。' },
       { title: 'AI 文案生成', description: '点击"使用 AI 生成文案"按钮，系统会根据照片信息自动生成描述文案。' },
       { title: '保存更改', description: '编辑完成后，点击"保存"按钮提交更改。点击"取消"按钮放弃所有未保存的更改。' },
@@ -64,8 +64,8 @@ const sections: GuideSection[] = [
     title: '快捷键',
     icon: <Keyboard className="w-5 h-5" />,
     items: [
-      { title: '↑ / ↓', description: '在浏览相册中切换上一张/下一张照片。' },
-      { title: '← / →', description: '在浏览相册中互换照片和地图的显示位置。' },
+      { title: '← / →', description: '在浏览相册中切换上一张/下一张照片。' },
+      { title: 'Ctrl/Cmd + ↑ / ↓', description: '在浏览相册中切换照片与地图的主视图。' },
       { title: 'F', description: '在浏览相册中切换全屏模式。' },
       { title: 'ESC', description: '关闭当前弹窗、退出全屏模式，或返回上一级界面。' },
     ],

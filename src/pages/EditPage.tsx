@@ -55,6 +55,7 @@ export default function EditPage({ user }: EditPageProps) {
         address: updatedPhoto.address,
         aiGeneratedText: updatedPhoto.aiGeneratedText,
         albumId: updatedPhoto.albumId,
+        photoDate: updatedPhoto.photoDate || null,
       });
 
       if (updated) {

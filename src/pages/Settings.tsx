@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Key, Globe, Bot, AlertCircle, MapPin, Search, CheckCircle2, HelpCircle, Download, Upload, Database, X } from 'lucide-react';
-import { User, AIConfig, MapProvider, Album } from '../types';
+import { User, AIConfig, MapProvider, Album, AIProvider } from '../types';
 import OperationGuide from '../components/OperationGuide';
 
 interface SettingsProps {
@@ -9,10 +9,11 @@ interface SettingsProps {
 }
 
 const AI_PROVIDERS = [
-  { id: 'openai', name: 'OpenAI', defaultUrl: 'https://api.openai.com/v1/chat/completions', defaultModel: 'gpt-3.5-turbo' },
-  { id: 'claude', name: 'Claude (Anthropic)', defaultUrl: 'https://api.anthropic.com/v1/messages', defaultModel: 'claude-3-haiku-20240307' },
+  { id: 'volcano', name: '火山方舟 (Ark)', defaultUrl: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions', defaultModel: 'ep-xxx' },
+  { id: 'qwen', name: '通义千问', defaultUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', defaultModel: 'qwen-plus' },
+  { id: 'deepseek', name: 'DeepSeek', defaultUrl: 'https://api.deepseek.com/v1/chat/completions', defaultModel: 'deepseek-chat' },
+  { id: 'zhipu', name: '智谱 AI', defaultUrl: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', defaultModel: 'glm-4-flash' },
   { id: 'ollama', name: 'Ollama (本地)', defaultUrl: 'http://localhost:11434/api/chat', defaultModel: 'llama3' },
-  { id: 'volcano', name: '火山大模型 (Ark)', defaultUrl: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions', defaultModel: 'ep-xxx' },
   { id: 'custom', name: '自定义 API', defaultUrl: '', defaultModel: '' },
 ];
 
@@ -49,7 +50,7 @@ function Settings({ user }: SettingsProps) {
   const [isImporting, setIsImporting] = useState(false);
 
   // Form state
-  const [provider, setProvider] = useState<'openai' | 'claude' | 'ollama' | 'volcano' | 'custom'>('openai');
+  const [provider, setProvider] = useState<AIProvider>('volcano');
   const [apiKey, setApiKey] = useState('');
   const [apiUrl, setApiUrl] = useState('');
   const [model, setModel] = useState('');
@@ -66,11 +67,15 @@ function Settings({ user }: SettingsProps) {
     try {
       const config = await window.electronAPI.db.getAIConfig(user.id);
       if (config) {
-        setAiConfig(config);
-        setProvider(config.provider);
+        const normalizedProvider: AIProvider = AI_PROVIDERS.some(p => p.id === config.provider)
+          ? config.provider
+          : 'volcano';
+        const providerInfo = AI_PROVIDERS.find(p => p.id === normalizedProvider);
+        setAiConfig({ ...config, provider: normalizedProvider });
+        setProvider(normalizedProvider);
         setApiKey(config.apiKey);
-        setApiUrl(config.apiUrl || '');
-        setModel(config.model || '');
+        setApiUrl(config.apiUrl || providerInfo?.defaultUrl || '');
+        setModel(config.model || providerInfo?.defaultModel || '');
       }
 
       // 加载地图设置
@@ -87,7 +92,7 @@ function Settings({ user }: SettingsProps) {
     }
   };
 
-  const handleProviderChange = (newProvider: 'openai' | 'claude' | 'ollama' | 'volcano' | 'custom') => {
+  const handleProviderChange = (newProvider: AIProvider) => {
     setProvider(newProvider);
     const providerInfo = AI_PROVIDERS.find(p => p.id === newProvider);
     if (providerInfo) {
@@ -256,6 +261,7 @@ function Settings({ user }: SettingsProps) {
         for (const photo of albumPhotos) {
           await window.electronAPI.db.createPhoto({
             ...photo,
+            photoDate: photo.photoDate ?? null,
             userId: user.id,
             albumId: newAlbum.id,
             id: undefined,
@@ -271,6 +277,7 @@ function Settings({ user }: SettingsProps) {
         for (const photo of unassignedPhotos) {
           await window.electronAPI.db.createPhoto({
             ...photo,
+            photoDate: photo.photoDate ?? null,
             userId: user.id,
             albumId: null,
             id: undefined,
@@ -399,24 +406,19 @@ function Settings({ user }: SettingsProps) {
         <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col md:flex-row gap-8">
           {/* Logo Sidebar */}
           <div className="w-full md:w-[22rem] flex-shrink-0">
-            <div className="bg-white rounded-3xl shadow-xl p-4 border border-gray-100 sticky top-0 overflow-hidden group">
-              <div className="absolute -inset-2 bg-primary-500/5 blur-2xl group-hover:bg-primary-500/10 transition-colors" />
-              <div className="px-2">
+            <div className="bg-white rounded-3xl shadow-xl p-5 border border-gray-100 sticky top-0 overflow-hidden">
+              <div className="rounded-[28px] bg-gradient-to-b from-primary-50 to-white p-4 border border-primary-100/60">
                 <img
-                  src="assets/grainmap-logo.jpg"
+                  src="/assets/grainmap-logo.jpg"
                   alt="Grainmap Logo"
-                  className="relative w-full rounded-2xl shadow-inner object-contain"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.src = "https://ui-avatars.com/api/?name=Grainmap&background=1e3a8a&color=fff&size=512";
-                  }}
+                  className="block w-full max-h-[22rem] rounded-2xl object-contain bg-white"
                 />
               </div>
-              <div className="mt-4 px-2">
+              <div className="mt-5 px-1 text-center">
                 <h3 className="text-lg font-bold text-gray-900">Grainmap</h3>
                 <p className="text-xs text-gray-500 mt-1 leading-relaxed">记录每一颗被点亮的足迹，编织属于你的地理记忆。</p>
-                <div className="mt-4 space-y-1 text-[10px] text-gray-400 text-right leading-snug">
-                  <p className="whitespace-nowrap tracking-[0.01em]">Powered by Milegolden, issued on Rainforgrain.</p>
+                <div className="mt-4 space-y-1 text-[10px] text-gray-400 leading-snug">
+                  <p className="tracking-[0.01em]">Powered by Milegolden, issued on Rainforgrain.</p>
                   <p>2026,4,20</p>
                 </div>
               </div>

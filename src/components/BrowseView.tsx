@@ -334,7 +334,7 @@ export default function BrowseView({
               <button
                 onClick={() => setIsMapMain(m => !m)}
                 className="absolute bottom-4 left-4 p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white transition-colors"
-                title="切换地图与照片 (CTRL+↑)"
+                title="切换主视图"
               >
                 <ArrowUpDown className="w-5 h-5" />
               </button>
@@ -389,7 +389,7 @@ export default function BrowseView({
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500">
                           <span className="bg-gray-100 px-1.5 py-0.5 rounded">{albumName}</span>
-                          <span>{new Date(displayPhoto.createdAt).toLocaleDateString('zh-CN')}</span>
+                          <span>{displayPhoto.photoDate || new Date(displayPhoto.createdAt).toLocaleDateString('zh-CN')}</span>
                         </div>
                       </div>
 
@@ -461,7 +461,7 @@ export default function BrowseView({
           <button
             onClick={() => setIsMapMain(m => !m)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-medium text-gray-700 transition-colors"
-            title="切换主视图 (CTRL+↑)"
+            title="切换主视图"
           >
             <ArrowUpDown className="w-3.5 h-3.5" />
             <span>切换主视图</span>
@@ -525,16 +525,12 @@ export default function BrowseView({
             切换布局
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="px-1.5 py-0.5 bg-gray-200 rounded text-[9px]">CTRL+↑</kbd>
-            切换主视图
-          </span>
-          <span className="flex items-center gap-1">
             <kbd className="px-1.5 py-0.5 bg-gray-200 rounded text-[9px]">F</kbd>
             全屏
           </span>
           <span className="flex items-center gap-1">
             <kbd className="px-1.5 py-0.5 bg-gray-200 rounded text-[9px]">ESC</kbd>
-            关闭
+            返回地图
           </span>
         </div>
       </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Settings, Plus, X, Image as ImageIcon, Loader2, Sparkles, MapPin, FolderPlus, Edit2, Trash2, Folder, AlertCircle, Eye } from 'lucide-react';
+import { LogOut, Settings, Plus, X, Image as ImageIcon, Loader2, Sparkles, MapPin, FolderPlus, Edit2, Trash2, Folder, AlertCircle, Eye, Search, Footprints } from 'lucide-react';
 import L, { TileLayer } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { User, Photo, Album, MapProvider } from '../types';
@@ -32,19 +32,11 @@ class TencentTileLayer extends TileLayer {
 // OSM tile URL template
 const OSM_TILE_URL = 'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
+const formatPhotoDate = (photo: Pick<Photo, 'photoDate' | 'createdAt'>) => photo.photoDate || photo.createdAt.slice(0, 10);
+const getTodayDate = () => new Date().toISOString().slice(0, 10);
+
 function Map({ user, onLogout }: MapProps) {
   const navigate = useNavigate();
-
-  if (!window.electronAPI) {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-gray-50 text-gray-500">
-        <MapPin className="w-16 h-16 mb-4 text-red-500 animate-pulse" />
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">环境未就绪</h2>
-        <p>未检测到 Electron 接口，应用功能将无法正常使用。</p>
-        <p className="mt-2 text-sm text-gray-400">请确保在 Grainmap 桌面客户端中运行。</p>
-      </div>
-    );
-  }
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -234,9 +226,13 @@ function Map({ user, onLogout }: MapProps) {
     longitude: DEFAULT_CENTER[1],
     address: '',
     albumId: null,
+    photoDate: '',
   });
   const [selectedImages, setSelectedImages] = useState<{data: string, name: string, exif?: any}[]>([]);
   const [currentImportIndex, setCurrentImportIndex] = useState(0);
+  const [lastImportedPhotoDate, setLastImportedPhotoDate] = useState<string>('');
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [searchingAddress, setSearchingAddress] = useState(false);
 
   // 相册表单
   const [albumForm, setAlbumForm] = useState({ name: '', description: '' });
@@ -273,6 +269,15 @@ function Map({ user, onLogout }: MapProps) {
       iconAnchor: [20, 20],
     });
   };
+
+  const createFootprintIcon = () => L.divIcon({
+    html: `
+      <div style="width:28px;height:28px;border-radius:9999px;background:rgba(245,158,11,0.92);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(120,53,15,0.35);border:2px solid rgba(255,255,255,0.95);color:#fff7d6;font-size:15px;">👣</div>
+    `,
+    className: 'custom-footprint-marker',
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  });
 
   // 初始化主地图
   useEffect(() => {
@@ -461,30 +466,6 @@ function Map({ user, onLogout }: MapProps) {
     selectTileLayerRef.current.addTo(selectMapRef.current);
   }, [mapType, mapProvider]);
 
-  // 更新地图标记
-  useEffect(() => {
-    if (!mapRef.current) return;
-
-    // 清除现有标记
-    markersRef.current.forEach(m => m.remove());
-    markersRef.current = [];
-
-    // Note: We no longer show all markers on load as per user request.
-    // Markers are only shown when a photo is selected via previewPhoto.
-    if (!previewPhoto) return;
-
-    const marker = L.marker([previewPhoto.latitude, previewPhoto.longitude], {
-      icon: createMarkerIcon(previewPhoto),
-    });
-
-    marker.on('click', () => {
-      navigate(`/browse/${previewPhoto.id}?albumId=${selectedAlbumId || ''}`);
-    });
-
-    marker.addTo(mapRef.current!);
-    markersRef.current.push(marker);
-  }, [photos, selectedAlbumId, previewPhoto]);
-
   // Handle preview thumbnail and leader line
   useEffect(() => {
     if (!mapRef.current) return;
@@ -518,6 +499,21 @@ function Map({ user, onLogout }: MapProps) {
       console.error('Error loading albums:', error);
     }
   };
+
+  const filteredPhotos = useMemo(() => (
+    selectedAlbumId ? photos.filter(p => p.albumId === selectedAlbumId) : photos
+  ), [photos, selectedAlbumId]);
+
+  const groupedPhotos = useMemo(() => {
+    const groups = new globalThis.Map<string, Photo[]>();
+    for (const photo of filteredPhotos) {
+      const key = `${photo.latitude.toFixed(6)},${photo.longitude.toFixed(6)}`;
+      const current = groups.get(key) || [];
+      current.push(photo);
+      groups.set(key, current);
+    }
+    return Array.from(groups.entries()).map(([key, items]) => ({ key, photo: items[0], count: items.length }));
+  }, [filteredPhotos]);
 
 
   const openPhoto = (photo: Photo) => {
@@ -561,6 +557,7 @@ function Map({ user, onLogout }: MapProps) {
   };
 
   const applyPhotoData = (photoData: any) => {
+    const nextPhotoDate = photoData.exif?.photoDate || lastImportedPhotoDate || getTodayDate();
     setNewPhoto(prev => ({
       ...prev,
       title: photoData.name.split('.')[0],
@@ -570,15 +567,21 @@ function Map({ user, onLogout }: MapProps) {
       address: '',
       aiGeneratedText: '',
       albumId: selectedAlbumId,
+      photoDate: nextPhotoDate,
     }));
 
-    if (photoData.exif?.latitude && selectMapRef.current) {
-      const latlng: [number, number] = [photoData.exif.latitude, photoData.exif.longitude];
+    const targetLat = photoData.exif?.latitude || DEFAULT_CENTER[0];
+    const targetLng = photoData.exif?.longitude || DEFAULT_CENTER[1];
+    if (selectMapRef.current) {
+      const latlng: [number, number] = [targetLat, targetLng];
       selectMapRef.current.setView(latlng, 12);
       if (selectMarkerRef.current) {
         selectMarkerRef.current.remove();
       }
       selectMarkerRef.current = L.marker(latlng).addTo(selectMapRef.current);
+    }
+
+    if (photoData.exif?.latitude) {
       setNewPhoto(prev => ({
         ...prev,
         address: `${photoData.exif.latitude.toFixed(6)}, ${photoData.exif.longitude.toFixed(6)}`,
@@ -590,8 +593,9 @@ function Map({ user, onLogout }: MapProps) {
     await saveCurrentImage();
     if (currentImportIndex < selectedImages.length - 1) {
       const nextIndex = currentImportIndex + 1;
+      const nextPhoto = selectedImages[nextIndex];
       setCurrentImportIndex(nextIndex);
-      applyPhotoData(selectedImages[nextIndex]);
+      applyPhotoData(nextPhoto);
     } else {
       setShowAddModal(false);
       resetAddForm();
@@ -614,6 +618,7 @@ function Map({ user, onLogout }: MapProps) {
           address: newPhoto.address,
           aiGeneratedText: newPhoto.aiGeneratedText,
           albumId: newPhoto.albumId,
+          photoDate: newPhoto.photoDate || null,
         });
       } else {
         const savedImage = await window.electronAPI.file.saveImage(current.data, user.id);
@@ -627,8 +632,10 @@ function Map({ user, onLogout }: MapProps) {
           longitude: newPhoto.longitude || DEFAULT_CENTER[1],
           address: newPhoto.address || '',
           aiGeneratedText: newPhoto.aiGeneratedText || '',
+          photoDate: newPhoto.photoDate || null,
         });
       }
+      setLastImportedPhotoDate(newPhoto.photoDate || '');
     } catch (error) {
       console.error('Error saving photo:', error);
     } finally {
@@ -656,6 +663,7 @@ function Map({ user, onLogout }: MapProps) {
         address: editingPhoto.address,
         aiGeneratedText: editingPhoto.aiGeneratedText,
         albumId: editingPhoto.albumId,
+        photoDate: editingPhoto.photoDate || null,
       });
       if (updated) {
         setPhotos(prev => prev.map(p => p.id === updated.id ? updated : p));
@@ -708,9 +716,11 @@ function Map({ user, onLogout }: MapProps) {
       longitude: DEFAULT_CENTER[1],
       address: '',
       albumId: selectedAlbumId,
+      photoDate: '',
     });
     setSelectedImages([]);
     setCurrentImportIndex(0);
+    setLastImportedPhotoDate('');
     setIsEditing(false);
     setEditingPhotoId(null);
   };
@@ -724,16 +734,111 @@ function Map({ user, onLogout }: MapProps) {
     setShowAIGenerate(false);
   };
 
-  const filteredPhotos = useMemo(() => (
-    selectedAlbumId ? photos.filter(p => p.albumId === selectedAlbumId) : photos
-  ), [photos, selectedAlbumId]);
+  const handleSearchAddress = async () => {
+    if (!searchKeyword.trim() || !mapRef.current) return;
+
+    setSearchingAddress(true);
+    setError('');
+    try {
+      const response = await fetch(`https://apis.map.qq.com/ws/geocoder/v1/?address=${encodeURIComponent(searchKeyword.trim())}&output=json`);
+      const data = await response.json();
+      const location = data?.result?.location;
+      if (!location) {
+        throw new Error('未找到该地址');
+      }
+      setPreviewPhoto(null);
+      setThumbnailRect(null);
+      setCrosshairPos(null);
+      mapRef.current.flyTo([location.lat, location.lng], 15, { duration: 1 });
+    } catch (err: any) {
+      setError(err.message || '地址搜索失败');
+      setTimeout(() => setError(''), 3000);
+    } finally {
+      setSearchingAddress(false);
+    }
+  };
+
+  const handleDeletePhoto = async (photo: Photo) => {
+    if (!confirm(`确定要删除照片“${photo.title}”吗？`)) return;
+    try {
+      await window.electronAPI.file.deleteImage(photo.imagePath);
+      await window.electronAPI.db.deletePhoto(photo.id);
+      setPhotos(prev => prev.filter(item => item.id !== photo.id));
+      if (previewPhoto?.id === photo.id) {
+        setPreviewPhoto(null);
+        setThumbnailRect(null);
+        setCrosshairPos(null);
+      }
+    } catch (error) {
+      console.error('Error deleting photo:', error);
+    }
+  };
+
+  // 更新地图标记
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    markersRef.current.forEach(m => m.remove());
+    markersRef.current = [];
+
+    if (previewPhoto) {
+      const marker = L.marker([previewPhoto.latitude, previewPhoto.longitude], {
+        icon: createMarkerIcon(previewPhoto),
+      });
+
+      marker.on('click', () => {
+        navigate(`/browse/${previewPhoto.id}?albumId=${selectedAlbumId || ''}`);
+      });
+
+      marker.addTo(mapRef.current);
+      markersRef.current.push(marker);
+      return;
+    }
+
+    groupedPhotos.forEach(({ photo, count }) => {
+      const marker = L.marker([photo.latitude, photo.longitude], {
+        icon: createFootprintIcon(),
+      });
+      marker.on('click', () => openPhoto(photo));
+      marker.bindTooltip(count > 1 ? `${count} 张照片` : '1 张照片', { direction: 'top', offset: [0, -10] });
+      marker.addTo(mapRef.current!);
+      markersRef.current.push(marker);
+    });
+  }, [groupedPhotos, navigate, openPhoto, previewPhoto, selectedAlbumId]);
+
+  // Handle preview thumbnail and leader line
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    if (previewLayerRef.current) {
+      previewLayerRef.current.clearLayers();
+    } else {
+      previewLayerRef.current = L.layerGroup().addTo(mapRef.current);
+    }
+
+    if (!previewPhoto) return;
+
+    // We no longer add the thumbnail as a Leaflet marker.
+    // It's handled by the React overlay state.
+  }, [previewPhoto]);
+
+  if (!window.electronAPI) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-gray-50 text-gray-500">
+        <MapPin className="w-16 h-16 mb-4 text-red-500 animate-pulse" />
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">环境未就绪</h2>
+        <p>未检测到 Electron 接口，应用功能将无法正常使用。</p>
+        <p className="mt-2 text-sm text-gray-400">请确保在 Grainmap 桌面客户端中运行。</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
       <div className="sidebar flex flex-col">
         {/* 头部 */}
         <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div className="flex items-center space-x-2">
               <MapPin className="w-6 h-6 text-primary-600" />
               <span className="text-lg font-bold text-gray-900">Grainmap</span>
@@ -760,6 +865,22 @@ function Map({ user, onLogout }: MapProps) {
                 <LogOut className="w-5 h-5" />
               </button>
             </div>
+          </div>
+          <div className="mt-3 flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSearchAddress(); }}
+                className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-200"
+                placeholder="搜索地图地址"
+              />
+            </div>
+            <button onClick={handleSearchAddress} disabled={searchingAddress || !searchKeyword.trim()} className="btn-secondary !py-2 !px-3 text-sm disabled:opacity-50">
+              {searchingAddress ? <Loader2 className="w-4 h-4 animate-spin" /> : '搜索'}
+            </button>
           </div>
         </div>
 
@@ -855,6 +976,16 @@ function Map({ user, onLogout }: MapProps) {
                 className="group bg-gray-50 rounded-lg p-3 cursor-pointer hover:bg-gray-100 transition-colors relative"
                 onClick={() => openPhoto(photo)}
               >
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeletePhoto(photo);
+                  }}
+                  className="absolute bottom-2 right-2 z-10 rounded-full bg-white/90 p-1.5 text-gray-500 shadow-sm hover:text-red-600"
+                  title="删除照片"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
                 <div className="flex items-start space-x-3">
                   <div className="relative">
                     <img src={photo.imagePath} alt={photo.title} className="w-20 h-20 object-cover rounded-lg bg-gray-100" />
@@ -867,7 +998,7 @@ function Map({ user, onLogout }: MapProps) {
                   <div className="flex-1 min-w-0">
                     <h4 className="text-sm font-medium text-gray-900 truncate">{photo.title}</h4>
                     <p className="text-xs text-gray-500 mt-1 line-clamp-2">{photo.address || '未设置位置'}</p>
-                    <p className="text-xs text-gray-400 mt-1">{new Date(photo.createdAt).toLocaleDateString()}</p>
+                    <p className="text-xs text-gray-400 mt-1">{formatPhotoDate(photo)}</p>
                   </div>
                 </div>
               </div>
@@ -916,11 +1047,12 @@ function Map({ user, onLogout }: MapProps) {
         </div>
 
         {/* 当前地图信息 */}
-        <div className="absolute left-4 top-4 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-lg shadow-md z-10">
-          <span className="text-xs text-gray-600">
-            {mapProvider === 'tencent' ? '腾讯地图' : 'OpenStreetMap'} · {mapType === 'satellite' ? '卫星' : '标准'}
-          </span>
-        </div>
+            <div className="absolute left-4 top-4 bg-white/95 backdrop-blur-sm px-3 py-1.5 rounded-lg shadow-md z-10 flex items-center gap-2">
+              <Footprints className="w-3.5 h-3.5 text-amber-500" />
+              <span className="text-xs text-gray-600">
+                {mapProvider === 'tencent' ? '腾讯地图' : 'OpenStreetMap'} · {mapType === 'satellite' ? '卫星' : '标准'}
+              </span>
+            </div>
       </div>
 
       {/* 添加照片全屏 UI */}
@@ -979,6 +1111,15 @@ function Map({ user, onLogout }: MapProps) {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">描述</label>
                   <textarea value={newPhoto.description} onChange={(e) => setNewPhoto(prev => ({ ...prev, description: e.target.value }))} className="input-field h-24 resize-none" placeholder="输入照片描述" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">拍摄日期</label>
+                  <input
+                    type="date"
+                    value={newPhoto.photoDate || ''}
+                    onChange={(e) => setNewPhoto(prev => ({ ...prev, photoDate: e.target.value }))}
+                    className="input-field text-sm"
+                  />
                 </div>
                 <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
                   <span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">地址 / 坐标</span>
@@ -1065,6 +1206,15 @@ function Map({ user, onLogout }: MapProps) {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">描述</label>
                 <textarea value={editingPhoto.description} onChange={(e) => setEditingPhoto(prev => prev ? { ...prev, description: e.target.value } : null)} className="input-field h-24 resize-none" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">拍摄日期</label>
+                <input
+                  type="date"
+                  value={editingPhoto.photoDate || ''}
+                  onChange={(e) => setEditingPhoto(prev => prev ? { ...prev, photoDate: e.target.value } : null)}
+                  className="input-field text-sm"
+                />
               </div>
               <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
                 <span className="text-[10px] text-gray-400 block uppercase font-bold mb-1">地址 / 坐标</span>
