@@ -46,6 +46,7 @@ function Settings({ user }: SettingsProps) {
   const [selectedAlbumId, setSelectedAlbumId] = useState<string>('');
   const [showImportConflict, setShowImportConflict] = useState(false);
   const [importData, setImportData] = useState<any>(null);
+  const [importTargetName, setImportTargetName] = useState('');
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
 
@@ -223,7 +224,18 @@ function Settings({ user }: SettingsProps) {
         // 处理单个相册冲突逻辑
         const existingAlbum = albums.find(a => a.name === data.album.name);
         if (existingAlbum) {
+          const nextName = (() => {
+            let candidate = `${data.album.name} (1)`;
+            let counter = 1;
+            const names = new Set(albums.map(a => a.name));
+            while (names.has(candidate)) {
+              counter += 1;
+              candidate = `${data.album.name} (${counter})`;
+            }
+            return candidate;
+          })();
           setImportData({ ...data, existingId: existingAlbum.id });
+          setImportTargetName(nextName);
           setShowImportConflict(true);
         } else {
           await executeImport(data, 'new');
@@ -297,7 +309,7 @@ function Settings({ user }: SettingsProps) {
     }
   };
 
-  const executeImport = async (data: any, mode: 'new' | 'append' | 'overwrite') => {
+  const executeImport = async (data: any, mode: 'new' | 'append') => {
     try {
       setLoading(true);
       setShowImportConflict(false);
@@ -310,21 +322,10 @@ function Settings({ user }: SettingsProps) {
           description: data.album.description
         });
         targetAlbumId = newAlbum.id;
-      } else if (mode === 'append') {
-        targetAlbumId = data.existingId;
-      } else { // overwrite
-        // Clear existing photos in the album first?
-        // For simplicity, let's just use the existing album and add new photos
-        // The user might expect "overwrite" to delete old ones.
-        const existingPhotos = await window.electronAPI.db.getPhotosByAlbum(data.existingId);
-        for (const p of existingPhotos) {
-          await window.electronAPI.db.deletePhoto(p.id);
-          if (p.imagePath) await window.electronAPI.file.deleteImage(p.imagePath);
-        }
+      } else {
         targetAlbumId = data.existingId;
       }
 
-      // Create photos
       const existingPhotosInTarget = mode === 'append'
         ? await window.electronAPI.db.getPhotosByAlbum(targetAlbumId)
         : [];
@@ -335,7 +336,6 @@ function Settings({ user }: SettingsProps) {
         let finalTitle = photo.title;
         let counter = 1;
 
-        // 自动修改冲突标题
         while (existingTitles.has(finalTitle)) {
           finalTitle = `${photo.title} (${counter})`;
           counter++;
@@ -345,16 +345,19 @@ function Settings({ user }: SettingsProps) {
         await window.electronAPI.db.createPhoto({
           ...photo,
           title: finalTitle,
+          photoDate: photo.photoDate ?? null,
           userId: user.id,
           albumId: targetAlbumId,
-          id: undefined, // Let DB generate new ID
+          id: undefined,
           createdAt: undefined,
           updatedAt: undefined
         });
       }
 
+      setImportData(null);
+      setImportTargetName('');
       setMessage('导入成功！');
-      loadAIConfig(); // Refresh album list
+      loadAIConfig();
       setTimeout(() => setMessage(''), 3000);
     } catch (err: any) {
       setError(`执行导入时出错: ${err.message}`);
@@ -719,7 +722,11 @@ function Settings({ user }: SettingsProps) {
                 <AlertCircle className="w-5 h-5 text-amber-500 mr-2" />
                 <h3 className="text-lg font-bold text-gray-900">导入相册名冲突</h3>
               </div>
-              <button onClick={() => setShowImportConflict(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => {
+                setShowImportConflict(false);
+                setImportData(null);
+                setImportTargetName('');
+              }} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -734,33 +741,26 @@ function Settings({ user }: SettingsProps) {
                 onClick={() => executeImport(importData, 'append')}
                 className="w-full p-4 border-2 border-gray-100 hover:border-primary-500 hover:bg-primary-50 rounded-xl transition-all text-left group"
               >
-                <div className="text-sm font-bold text-gray-900 group-hover:text-primary-700">追加</div>
+                <div className="text-sm font-bold text-gray-900 group-hover:text-primary-700">追加到当前同名相册</div>
                 <div className="text-xs text-gray-500">保留现有照片，并将新照片添加至该相册。</div>
               </button>
 
               <button
-                onClick={() => executeImport(importData, 'overwrite')}
-                className="w-full p-4 border-2 border-gray-100 hover:border-red-500 hover:bg-red-50 rounded-xl transition-all text-left group"
-              >
-                <div className="text-sm font-bold text-gray-900 group-hover:text-red-700">覆盖</div>
-                <div className="text-xs text-gray-500">删除原相册内的所有照片，并导入当前新照片。</div>
-              </button>
-
-              <button
-                onClick={() => {
-                  const newName = `${importData.album.name} (导入-${new Date().toLocaleTimeString()})`;
-                  executeImport({ ...importData, album: { ...importData.album, name: newName } }, 'new');
-                }}
+                onClick={() => executeImport({ ...importData, album: { ...importData.album, name: importTargetName } }, 'new')}
                 className="w-full p-4 border-2 border-gray-100 hover:border-green-500 hover:bg-green-50 rounded-xl transition-all text-left group"
               >
-                <div className="text-sm font-bold text-gray-900 group-hover:text-green-700">创建新相册</div>
-                <div className="text-xs text-gray-500">保持原相册不变，新建一个包含时间戳名称的相册。</div>
+                <div className="text-sm font-bold text-gray-900 group-hover:text-green-700">新建相册</div>
+                <div className="text-xs text-gray-500">额外创建名称为“{importTargetName}”的新相册，并导入这些照片。</div>
               </button>
             </div>
 
             <div className="mt-6 flex justify-end">
               <button
-                onClick={() => setShowImportConflict(false)}
+                onClick={() => {
+                  setShowImportConflict(false);
+                  setImportData(null);
+                  setImportTargetName('');
+                }}
                 className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
               >
                 取消

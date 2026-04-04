@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Settings, Plus, X, Image as ImageIcon, Loader2, Sparkles, MapPin, FolderPlus, Edit2, Trash2, Folder, AlertCircle, Eye, Search, Footprints } from 'lucide-react';
+import { LogOut, Settings, Plus, X, Image as ImageIcon, Loader2, Sparkles, MapPin, FolderPlus, Edit2, Trash2, Folder, AlertCircle, Eye, Search, Footprints, MoveRight, ChevronDown } from 'lucide-react';
 import L, { TileLayer } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { User, Photo, Album, MapProvider } from '../types';
@@ -32,7 +32,6 @@ class TencentTileLayer extends TileLayer {
 // OSM tile URL template
 const OSM_TILE_URL = 'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
-const formatPhotoDate = (photo: Pick<Photo, 'photoDate' | 'createdAt'>) => photo.photoDate || photo.createdAt.slice(0, 10);
 const getTodayDate = () => new Date().toISOString().slice(0, 10);
 
 function Map({ user, onLogout }: MapProps) {
@@ -233,6 +232,8 @@ function Map({ user, onLogout }: MapProps) {
   const [lastImportedPhotoDate, setLastImportedPhotoDate] = useState<string>('');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [searchingAddress, setSearchingAddress] = useState(false);
+  const [movingPhotoId, setMovingPhotoId] = useState<string | null>(null);
+  const [albumPickerPhotoId, setAlbumPickerPhotoId] = useState<string | null>(null);
 
   // 相册表单
   const [albumForm, setAlbumForm] = useState({ name: '', description: '' });
@@ -774,6 +775,40 @@ function Map({ user, onLogout }: MapProps) {
     }
   };
 
+  const handleMovePhotoToAlbum = async (photo: Photo, targetAlbumId: string | null) => {
+    const targetName = targetAlbumId
+      ? albums.find(album => album.id === targetAlbumId)?.name || '目标相册'
+      : '未分类';
+
+    setMovingPhotoId(photo.id);
+    try {
+      const updated = await window.electronAPI.db.updatePhoto(photo.id, {
+        title: photo.title,
+        description: photo.description,
+        latitude: photo.latitude,
+        longitude: photo.longitude,
+        address: photo.address,
+        aiGeneratedText: photo.aiGeneratedText,
+        albumId: targetAlbumId,
+        photoDate: photo.photoDate || null,
+      });
+
+      if (updated) {
+        setPhotos(prev => prev.map(item => item.id === updated.id ? updated : item));
+        if (previewPhoto?.id === updated.id) {
+          setPreviewPhoto(updated);
+        }
+        setAlbumPickerPhotoId(null);
+      }
+    } catch (error) {
+      console.error('Error moving photo:', error);
+      setError(`移动失败：无法将照片移到${targetName}`);
+      setTimeout(() => setError(''), 3000);
+    } finally {
+      setMovingPhotoId(null);
+    }
+  };
+
   // 更新地图标记
   useEffect(() => {
     if (!mapRef.current) return;
@@ -835,7 +870,7 @@ function Map({ user, onLogout }: MapProps) {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
-      <div className="sidebar flex flex-col">
+      <div className="w-[18.5rem] shrink-0 border-r border-gray-200 bg-white/95 backdrop-blur-sm flex flex-col">
         {/* 头部 */}
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center justify-between gap-3">
@@ -969,11 +1004,11 @@ function Map({ user, onLogout }: MapProps) {
           <h3 className="text-sm font-medium text-gray-700 mb-3">
             {selectedAlbumId ? albums.find(a => a.id === selectedAlbumId)?.name : '全部照片'} ({filteredPhotos.length})
           </h3>
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             {filteredPhotos.map(photo => (
               <div
                 key={photo.id}
-                className="group bg-gray-50 rounded-lg p-3 cursor-pointer hover:bg-gray-100 transition-colors relative"
+                className="group rounded-xl border border-gray-200 bg-gray-50/90 p-2 cursor-pointer hover:bg-gray-100 transition-colors relative"
                 onClick={() => openPhoto(photo)}
               >
                 <button
@@ -986,19 +1021,50 @@ function Map({ user, onLogout }: MapProps) {
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
-                <div className="flex items-start space-x-3">
-                  <div className="relative">
-                    <img src={photo.imagePath} alt={photo.title} className="w-20 h-20 object-cover rounded-lg bg-gray-100" />
+                <div className="flex items-start gap-2">
+                  <div className="relative shrink-0">
+                    <img src={photo.imagePath} alt={photo.title} className="h-16 w-16 object-cover rounded-lg bg-gray-100" />
                     {photo.latitude && photo.longitude && (
                       <div className="absolute -top-1 -right-1 bg-primary-500 text-white p-0.5 rounded-full border border-white shadow-sm">
                         <MapPin className="w-2.5 h-2.5" />
                       </div>
                     )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-sm font-medium text-gray-900 truncate">{photo.title}</h4>
-                    <p className="text-xs text-gray-500 mt-1 line-clamp-2">{photo.address || '未设置位置'}</p>
-                    <p className="text-xs text-gray-400 mt-1">{formatPhotoDate(photo)}</p>
+                  <div className="min-w-0 flex-1 pr-8">
+                    <div className="flex items-start justify-between gap-2">
+                      <h4 className="text-sm font-medium text-gray-900 line-clamp-2 break-words">{photo.title}</h4>
+                      <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => setAlbumPickerPhotoId(prev => prev === photo.id ? null : photo.id)}
+                          className="rounded-full bg-white p-1.5 text-gray-500 shadow-sm hover:text-primary-600"
+                          title="分入相册"
+                        >
+                          <MoveRight className="h-3.5 w-3.5" />
+                        </button>
+                        {albumPickerPhotoId === photo.id && (
+                          <div className="absolute right-0 top-8 z-20 w-36 rounded-xl border border-gray-200 bg-white p-2 shadow-xl">
+                            <div className="mb-1 flex items-center justify-between px-1 text-[10px] font-medium text-gray-500">
+                              <span>分入相册</span>
+                              <ChevronDown className="h-3 w-3" />
+                            </div>
+                            <select
+                              value={photo.albumId || ''}
+                              onChange={(e) => handleMovePhotoToAlbum(photo, e.target.value || null)}
+                              disabled={movingPhotoId === photo.id}
+                              className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-600 outline-none focus:border-primary-500"
+                              autoFocus
+                            >
+                              <option value="">未分类</option>
+                              {albums.map(album => (
+                                <option key={album.id} value={album.id}>{album.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <p className="mt-1 text-[11px] text-gray-500 line-clamp-2">{photo.address || '未设置位置'}</p>
                   </div>
                 </div>
               </div>
