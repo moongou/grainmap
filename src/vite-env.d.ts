@@ -29,6 +29,9 @@ declare global {
         exportData: (data: any) => Promise<boolean>;
         importData: () => Promise<any>;
       };
+      map: {
+        searchLocation: (query: string) => Promise<{ success: boolean; result?: { title: string; address: string; latitude: number; longitude: number }; error?: string }>;
+      };
       store: {
         get: (key: string) => Promise<any>;
         set: (key: string, value: any) => Promise<boolean>;

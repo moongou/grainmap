@@ -1,7 +1,7 @@
 {
   "name": "grainmap",
   "private": true,
-  "version": "1.4.2",
+  "version": "4.20.0",
   "description": "照片地图应用，让你可以在地图上标记和记录你的照片故事",
   "author": "moongou",
   "type": "module",

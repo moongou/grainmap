@@ -9,6 +9,8 @@ import extract from 'extract-zip'
 import exifr from 'exifr'
 import * as piexif from 'piexifjs'
 
+const FALLBACK_GEOCODER_URL = 'https://nominatim.openstreetmap.org/search'
+
 // Helper function to convert decimal degrees to GPS rational for piexif
 const degToRational = (deg: number) => {
   const absolute = Math.abs(deg)
@@ -237,6 +239,90 @@ app.whenReady().then(async () => {
     } catch (error: any) {
       console.error('AI Connection Test Error:', error)
       return { success: false, error: error.message || '未知错误' }
+    }
+  })
+
+  ipcMain.handle('map:searchLocation', async (_, query: string) => {
+    const trimmedQuery = query.trim()
+    if (!trimmedQuery) {
+      return { success: false, error: '请输入地点关键词' }
+    }
+
+    const apiKey = (store as any).get('tencentMapKey') || process.env.TENCENT_MAP_KEY || ''
+
+    const fetchTencentLocation = async () => {
+      if (!apiKey) {
+        throw new Error('missing_tencent_key')
+      }
+
+      const url = `https://apis.map.qq.com/ws/geocoder/v1/?address=${encodeURIComponent(trimmedQuery)}&output=json&key=${encodeURIComponent(apiKey)}`
+      const response = await net.fetch(url, {
+        headers: {
+          Accept: 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error(`搜索失败: ${response.status} ${response.statusText}`)
+      }
+
+      const data: any = await response.json()
+      const location = data?.result?.location
+      if (!location) {
+        throw new Error(data?.message || '未找到该地点')
+      }
+
+      return {
+        title: data.result?.title || trimmedQuery,
+        address: data.result?.address || trimmedQuery,
+        latitude: location.lat,
+        longitude: location.lng,
+      }
+    }
+
+    const fetchFallbackLocation = async () => {
+      const url = `${FALLBACK_GEOCODER_URL}?format=jsonv2&limit=1&q=${encodeURIComponent(trimmedQuery)}`
+      const response = await net.fetch(url, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'Grainmap/1.4.2',
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error(`搜索失败: ${response.status} ${response.statusText}`)
+      }
+
+      const data: any = await response.json()
+      const first = Array.isArray(data) ? data[0] : null
+      if (!first) {
+        throw new Error('未找到该地点')
+      }
+
+      return {
+        title: first.name || trimmedQuery,
+        address: first.display_name || trimmedQuery,
+        latitude: Number(first.lat),
+        longitude: Number(first.lon),
+      }
+    }
+
+    try {
+      try {
+        const result = await fetchTencentLocation()
+        return { success: true, result }
+      } catch (error: any) {
+        const message = error?.message || ''
+        if (message !== 'missing_tencent_key' && !message.includes('key缺少') && !message.includes('key')) {
+          throw error
+        }
+      }
+
+      const fallbackResult = await fetchFallbackLocation()
+      return { success: true, result: fallbackResult }
+    } catch (error: any) {
+      console.error('Map search error:', error)
+      return { success: false, error: error.message || '地点搜索失败' }
     }
   })
 

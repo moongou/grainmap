@@ -462,6 +462,9 @@ function Settings({ user }: SettingsProps) {
                       </button>
                     ))}
                   </div>
+                  <p className="mt-2 text-[11px] text-gray-500 leading-relaxed">
+                    当前地点搜索功能可直接使用，无需额外配置腾讯地图 KEY。
+                  </p>
                 </div>
               </div>
             </div>

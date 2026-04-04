@@ -42,6 +42,37 @@ const OSM_TILE_URL = 'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 const getTodayDate = () => new Date().toISOString().slice(0, 10);
 
+const calculateDistanceKm = (from: [number, number], to: [number, number]) => {
+  const toRad = (value: number) => value * Math.PI / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRad(to[0] - from[0]);
+  const dLng = toRad(to[1] - from[1]);
+  const lat1 = toRad(from[0]);
+  const lat2 = toRad(to[0]);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const getFarTransitionConfig = (distanceKm: number) => {
+  if (distanceKm < 10) {
+    return null;
+  }
+
+  if (distanceKm < 30) {
+    return { overviewZoom: 11, duration: 1.4 };
+  }
+
+  if (distanceKm < 100) {
+    return { overviewZoom: DEFAULT_ZOOM, duration: 2.0 };
+  }
+
+  if (distanceKm < 300) {
+    return { overviewZoom: DEFAULT_ZOOM, duration: 2.5 };
+  }
+
+  return { overviewZoom: DEFAULT_ZOOM, duration: 3 };
+};
+
 const getFootprintGridSize = (zoom: number) => {
   if (zoom >= 15) return 0;
   if (zoom >= 11) return 0.08;
@@ -280,6 +311,12 @@ function Map({ user, onLogout }: MapProps) {
   const [lastImportedPhotoDate, setLastImportedPhotoDate] = useState<string>('');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [searchingAddress, setSearchingAddress] = useState(false);
+  const [searchResult, setSearchResult] = useState<{ title: string; address: string; latitude: number; longitude: number } | null>(null);
+  const [editorSearchKeyword, setEditorSearchKeyword] = useState('');
+  const [editorSearchingAddress, setEditorSearchingAddress] = useState(false);
+  const [editorSearchResult, setEditorSearchResult] = useState<{ title: string; address: string; latitude: number; longitude: number } | null>(null);
+  const [lastImportedLocation, setLastImportedLocation] = useState<{ latitude: number; longitude: number; address: string } | null>(null);
+  const pendingImportViewRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
   const [movingPhotoId, setMovingPhotoId] = useState<string | null>(null);
   const [albumPickerPhotoId, setAlbumPickerPhotoId] = useState<string | null>(null);
 
@@ -434,12 +471,19 @@ function Map({ user, onLogout }: MapProps) {
         }
         selectMapInitializedRef.current = false;
 
-        const centerLat = editingPhoto?.latitude ?? newPhoto.latitude ?? DEFAULT_CENTER[0];
-        const centerLng = editingPhoto?.longitude ?? newPhoto.longitude ?? DEFAULT_CENTER[1];
+        const centerLat = pendingImportViewRef.current?.center[0]
+          ?? editingPhoto?.latitude
+          ?? newPhoto.latitude
+          ?? DEFAULT_CENTER[0];
+        const centerLng = pendingImportViewRef.current?.center[1]
+          ?? editingPhoto?.longitude
+          ?? newPhoto.longitude
+          ?? DEFAULT_CENTER[1];
+        const initialZoom = pendingImportViewRef.current?.zoom ?? 12;
 
         const map = L.map(container, {
           center: [centerLat, centerLng] as [number, number],
-          zoom: 12,
+          zoom: initialZoom,
           zoomControl: true,
           attributionControl: false,
         });
@@ -472,6 +516,8 @@ function Map({ user, onLogout }: MapProps) {
         } else if (newPhoto.latitude && newPhoto.longitude) {
           updateSelection(newPhoto.latitude, newPhoto.longitude);
         }
+
+        pendingImportViewRef.current = null;
       } catch (error) {
         console.error('Select map initialization error:', error);
       }
@@ -580,28 +626,49 @@ function Map({ user, onLogout }: MapProps) {
   const openPhoto = (photo: Photo) => {
     if (!mapRef.current) return;
 
-    // 1. 先清除当前预览 (避免上一张照片的框架在移动时闪烁)
     setPreviewPhoto(null);
     setThumbnailRect(null);
     setCrosshairPos(null);
 
-    // 2. 地图飞至目标位置
-    const targetZoom = 15;
-    const randomDuration = 0.8 + Math.random() * 0.7; // 0.8s - 1.5s 随机
-    mapRef.current.flyTo([photo.latitude, photo.longitude], targetZoom, {
-      duration: randomDuration,
-      easeLinearity: 0.25
-    });
+    const map = mapRef.current;
+    const currentCenter = map.getCenter();
+    const targetLatLng: [number, number] = [photo.latitude, photo.longitude];
+    const distanceKm = calculateDistanceKm([currentCenter.lat, currentCenter.lng], targetLatLng);
+    const farTransition = getFarTransitionConfig(distanceKm);
 
-    // 3. 监听飞行动画结束
-    const onMoveEnd = () => {
-      // 延时一小会儿确保视觉平滑
+    const showPreviewAfterMove = () => {
       setTimeout(() => {
         setPreviewPhoto(photo);
-      }, 100);
-      mapRef.current?.off('moveend', onMoveEnd);
+      }, farTransition ? 180 : 100);
     };
-    mapRef.current.on('moveend', onMoveEnd);
+
+    const finalMove = () => {
+      const onMoveEnd = () => {
+        map.off('moveend', onMoveEnd);
+        showPreviewAfterMove();
+      };
+      map.on('moveend', onMoveEnd);
+      map.flyTo(targetLatLng, 15, {
+        duration: farTransition?.duration ?? 1,
+        easeLinearity: 0.25,
+      });
+    };
+
+    if (!farTransition) {
+      finalMove();
+      return;
+    }
+
+    const onOverviewEnd = () => {
+      map.off('moveend', onOverviewEnd);
+      finalMove();
+    };
+
+    map.on('moveend', onOverviewEnd);
+    map.flyTo(targetLatLng, farTransition.overviewZoom, {
+      duration: Math.min(1.2, farTransition.duration * 0.45),
+      easeLinearity: 0.2,
+    });
   };
 
   const handleSelectImage = async () => {
@@ -610,6 +677,15 @@ function Map({ user, onLogout }: MapProps) {
       if (results && Array.isArray(results)) {
         setSelectedImages(results);
         setCurrentImportIndex(0);
+        setLastImportedPhotoDate('');
+        setLastImportedLocation(null);
+        pendingImportViewRef.current = null;
+        setPreviewPhoto(null);
+        setThumbnailRect(null);
+        setCrosshairPos(null);
+        setEditingPhoto(null);
+        setEditorSearchKeyword('');
+        setEditorSearchResult(null);
         applyPhotoData(results[0]);
       }
     } catch (error) {
@@ -617,56 +693,84 @@ function Map({ user, onLogout }: MapProps) {
     }
   };
 
-  const applyPhotoData = (photoData: any) => {
+  const applyPhotoData = (photoData: any, options?: { keepMapCenter?: boolean; center?: [number, number]; zoom?: number }) => {
     const nextPhotoDate = photoData.exif?.photoDate || lastImportedPhotoDate || getTodayDate();
+    const fallbackLatitude = lastImportedLocation?.latitude || DEFAULT_CENTER[0];
+    const fallbackLongitude = lastImportedLocation?.longitude || DEFAULT_CENTER[1];
+    const fallbackAddress = lastImportedLocation?.address || '';
+    const targetLat = photoData.exif?.latitude || fallbackLatitude;
+    const targetLng = photoData.exif?.longitude || fallbackLongitude;
+    const nextAddress = photoData.exif?.latitude
+      ? `${photoData.exif.latitude.toFixed(6)}, ${photoData.exif.longitude.toFixed(6)}`
+      : fallbackAddress;
+
     setNewPhoto(prev => ({
       ...prev,
       title: photoData.name.split('.')[0],
       description: '',
-      latitude: photoData.exif?.latitude || DEFAULT_CENTER[0],
-      longitude: photoData.exif?.longitude || DEFAULT_CENTER[1],
-      address: '',
+      latitude: targetLat,
+      longitude: targetLng,
+      address: nextAddress,
       aiGeneratedText: '',
       albumId: selectedAlbumId,
       photoDate: nextPhotoDate,
     }));
 
-    const targetLat = photoData.exif?.latitude || DEFAULT_CENTER[0];
-    const targetLng = photoData.exif?.longitude || DEFAULT_CENTER[1];
     if (selectMapRef.current) {
-      const latlng: [number, number] = [targetLat, targetLng];
-      selectMapRef.current.setView(latlng, 12);
+      const markerLatLng: [number, number] = [targetLat, targetLng];
+      const currentZoom = selectMapRef.current.getZoom();
+      const centerLatLng = options?.center || markerLatLng;
+      const nextZoom = options?.zoom ?? currentZoom;
+      if (!options?.keepMapCenter) {
+        selectMapRef.current.setView(centerLatLng, nextZoom, { animate: false });
+      }
       if (selectMarkerRef.current) {
         selectMarkerRef.current.remove();
       }
-      selectMarkerRef.current = L.marker(latlng).addTo(selectMapRef.current);
-    }
-
-    if (photoData.exif?.latitude) {
-      setNewPhoto(prev => ({
-        ...prev,
-        address: `${photoData.exif.latitude.toFixed(6)}, ${photoData.exif.longitude.toFixed(6)}`,
-      }));
+      const markerPhoto = editingPhoto || ({ imagePath: photoData.data || selectedImages[currentImportIndex]?.data || '' } as Photo);
+      selectMarkerRef.current = L.marker(markerLatLng, { icon: createMarkerIcon(markerPhoto) }).addTo(selectMapRef.current);
     }
   };
 
   const handleNextImport = async () => {
-    await saveCurrentImage();
+    const previousCenter = selectMapRef.current?.getCenter();
+    const previousZoom = selectMapRef.current?.getZoom();
+    const savedLocation = await saveCurrentImage();
     if (currentImportIndex < selectedImages.length - 1) {
       const nextIndex = currentImportIndex + 1;
       const nextPhoto = selectedImages[nextIndex];
+      const center = previousCenter
+        ? [previousCenter.lat, previousCenter.lng] as [number, number]
+        : savedLocation;
+      if (center) {
+        pendingImportViewRef.current = {
+          center,
+          zoom: previousZoom ?? 12,
+        };
+      }
       setCurrentImportIndex(nextIndex);
-      applyPhotoData(nextPhoto);
+      applyPhotoData(nextPhoto, {
+        keepMapCenter: true,
+      });
     } else {
       setShowAddModal(false);
       resetAddForm();
+      setPreviewPhoto(null);
+      setThumbnailRect(null);
+      setCrosshairPos(null);
+      setEditingPhoto(null);
+      setEditorSearchKeyword('');
+      setEditorSearchResult(null);
+      if (mapRef.current) {
+        mapRef.current.flyTo(DEFAULT_CENTER, DEFAULT_ZOOM, { duration: 0.8 });
+      }
       loadPhotos();
     }
   };
 
   const saveCurrentImage = async () => {
     const current = selectedImages[currentImportIndex];
-    if (!current) return;
+    if (!current) return null;
 
     setLoading(true);
     try {
@@ -697,8 +801,15 @@ function Map({ user, onLogout }: MapProps) {
         });
       }
       setLastImportedPhotoDate(newPhoto.photoDate || '');
+      setLastImportedLocation({
+        latitude: newPhoto.latitude || DEFAULT_CENTER[0],
+        longitude: newPhoto.longitude || DEFAULT_CENTER[1],
+        address: newPhoto.address || '',
+      });
+      return [newPhoto.latitude || DEFAULT_CENTER[0], newPhoto.longitude || DEFAULT_CENTER[1]] as [number, number];
     } catch (error) {
       console.error('Error saving photo:', error);
+      return null;
     } finally {
       setLoading(false);
     }
@@ -782,6 +893,8 @@ function Map({ user, onLogout }: MapProps) {
     setSelectedImages([]);
     setCurrentImportIndex(0);
     setLastImportedPhotoDate('');
+    setLastImportedLocation(null);
+    pendingImportViewRef.current = null;
     setIsEditing(false);
     setEditingPhotoId(null);
   };
@@ -800,23 +913,79 @@ function Map({ user, onLogout }: MapProps) {
 
     setSearchingAddress(true);
     setError('');
+    setSearchResult(null);
     try {
-      const response = await fetch(`https://apis.map.qq.com/ws/geocoder/v1/?address=${encodeURIComponent(searchKeyword.trim())}&output=json`);
-      const data = await response.json();
-      const location = data?.result?.location;
-      if (!location) {
-        throw new Error('未找到该地址');
+      const response = await window.electronAPI.map.searchLocation(searchKeyword.trim());
+      if (!response?.success || !response.result) {
+        throw new Error(response?.error || '未找到该地址');
       }
-      setPreviewPhoto(null);
-      setThumbnailRect(null);
-      setCrosshairPos(null);
-      mapRef.current.flyTo([location.lat, location.lng], 15, { duration: 1 });
+      setSearchResult(response.result);
     } catch (err: any) {
       setError(err.message || '地址搜索失败');
       setTimeout(() => setError(''), 3000);
     } finally {
       setSearchingAddress(false);
     }
+  };
+
+  const handleConfirmSearchResult = () => {
+    if (!searchResult || !mapRef.current) return;
+
+    setPreviewPhoto(null);
+    setThumbnailRect(null);
+    setCrosshairPos(null);
+    mapRef.current.flyTo([searchResult.latitude, searchResult.longitude], 15, { duration: 1 });
+    setSearchResult(null);
+  };
+
+  const handleEditorSearchAddress = async () => {
+    if (!editorSearchKeyword.trim() || !selectMapRef.current) return;
+
+    setEditorSearchingAddress(true);
+    setError('');
+    setEditorSearchResult(null);
+    try {
+      const response = await window.electronAPI.map.searchLocation(editorSearchKeyword.trim());
+      if (!response?.success || !response.result) {
+        throw new Error(response?.error || '未找到该地址');
+      }
+      setEditorSearchResult(response.result);
+    } catch (err: any) {
+      setError(err.message || '地址搜索失败');
+      setTimeout(() => setError(''), 3000);
+    } finally {
+      setEditorSearchingAddress(false);
+    }
+  };
+
+  const handleConfirmEditorSearchResult = () => {
+    if (!editorSearchResult || !selectMapRef.current) return;
+
+    const latlng: [number, number] = [editorSearchResult.latitude, editorSearchResult.longitude];
+    selectMapRef.current.flyTo(latlng, 15, { duration: 1 });
+
+    if (editingPhoto) {
+      setEditingPhoto(prev => prev ? {
+        ...prev,
+        latitude: editorSearchResult.latitude,
+        longitude: editorSearchResult.longitude,
+        address: editorSearchResult.address,
+      } : prev);
+    } else {
+      setNewPhoto(prev => ({
+        ...prev,
+        latitude: editorSearchResult.latitude,
+        longitude: editorSearchResult.longitude,
+        address: editorSearchResult.address,
+      }));
+    }
+
+    if (selectMarkerRef.current) {
+      selectMarkerRef.current.remove();
+    }
+    const markerPhoto = editingPhoto || ({ imagePath: selectedImages[currentImportIndex]?.data || '' } as Photo);
+    selectMarkerRef.current = L.marker(latlng, { icon: createMarkerIcon(markerPhoto) }).addTo(selectMapRef.current);
+    setEditorSearchResult(null);
   };
 
   const handleDeletePhoto = async (photo: Photo) => {
@@ -977,6 +1146,20 @@ function Map({ user, onLogout }: MapProps) {
               {searchingAddress ? <Loader2 className="w-4 h-4 animate-spin" /> : '搜索'}
             </button>
           </div>
+          {searchResult && (
+            <div className="mt-3 rounded-xl border border-primary-200 bg-primary-50 p-3 text-sm">
+              <p className="font-medium text-primary-900">{searchResult.title}</p>
+              <p className="mt-1 text-xs text-primary-700">{searchResult.address}</p>
+              <div className="mt-3 flex gap-2">
+                <button onClick={handleConfirmSearchResult} className="btn-primary !py-2 !px-3 text-xs">
+                  移动到此地点
+                </button>
+                <button onClick={() => setSearchResult(null)} className="btn-secondary !py-2 !px-3 text-xs">
+                  取消
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 相册列表 */}
@@ -1200,6 +1383,39 @@ function Map({ user, onLogout }: MapProps) {
 
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">搜索地点</label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={editorSearchKeyword}
+                      onChange={(e) => setEditorSearchKeyword(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleEditorSearchAddress(); }}
+                      className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-200"
+                      placeholder="搜索拍摄地点"
+                    />
+                  </div>
+                  <button onClick={handleEditorSearchAddress} disabled={editorSearchingAddress || !editorSearchKeyword.trim()} className="btn-secondary !py-2 !px-3 text-sm disabled:opacity-50">
+                    {editorSearchingAddress ? <Loader2 className="w-4 h-4 animate-spin" /> : '搜索'}
+                  </button>
+                </div>
+                {editorSearchResult && (
+                  <div className="mt-3 rounded-xl border border-primary-200 bg-primary-50 p-3 text-sm">
+                    <p className="font-medium text-primary-900">{editorSearchResult.title}</p>
+                    <p className="mt-1 text-xs text-primary-700">{editorSearchResult.address}</p>
+                    <div className="mt-3 flex gap-2">
+                      <button onClick={handleConfirmEditorSearchResult} className="btn-primary !py-2 !px-3 text-xs">
+                        使用此地点
+                      </button>
+                      <button onClick={() => setEditorSearchResult(null)} className="btn-secondary !py-2 !px-3 text-xs">
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">选择照片</label>
                 {selectedImages.length > 0 ? (
                   <div className="flex justify-center">
@@ -1358,8 +1574,42 @@ function Map({ user, onLogout }: MapProps) {
             </div>
           </div>
           <div className="flex-1 relative bg-gray-100">
-            <div className="absolute top-6 left-6 z-10 bg-white/90 backdrop-blur-sm px-4 py-2.5 rounded-xl shadow-xl border border-white/50">
-              <p className="text-sm font-bold text-gray-900 flex items-center"><MapPin className="w-4 h-4 mr-1.5 text-primary-600" />点击地图更新这张照片的位置</p>
+            <div className="absolute top-6 left-6 z-10 w-[24rem] max-w-[calc(100%-3rem)] space-y-3">
+              <div className="bg-white/90 backdrop-blur-sm px-4 py-2.5 rounded-xl shadow-xl border border-white/50">
+                <p className="text-sm font-bold text-gray-900 flex items-center"><MapPin className="w-4 h-4 mr-1.5 text-primary-600" />点击地图更新这张照片的位置</p>
+              </div>
+              <div className="bg-white/95 backdrop-blur-sm p-3 rounded-xl shadow-xl border border-white/60">
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={editorSearchKeyword}
+                      onChange={(e) => setEditorSearchKeyword(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleEditorSearchAddress(); }}
+                      className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-200"
+                      placeholder="搜索拍摄地点"
+                    />
+                  </div>
+                  <button onClick={handleEditorSearchAddress} disabled={editorSearchingAddress || !editorSearchKeyword.trim()} className="btn-secondary !py-2 !px-3 text-sm disabled:opacity-50">
+                    {editorSearchingAddress ? <Loader2 className="w-4 h-4 animate-spin" /> : '搜索'}
+                  </button>
+                </div>
+                {editorSearchResult && (
+                  <div className="mt-3 rounded-xl border border-primary-200 bg-primary-50 p-3 text-sm">
+                    <p className="font-medium text-primary-900">{editorSearchResult.title}</p>
+                    <p className="mt-1 text-xs text-primary-700">{editorSearchResult.address}</p>
+                    <div className="mt-3 flex gap-2">
+                      <button onClick={handleConfirmEditorSearchResult} className="btn-primary !py-2 !px-3 text-xs">
+                        使用此地点
+                      </button>
+                      <button onClick={() => setEditorSearchResult(null)} className="btn-secondary !py-2 !px-3 text-xs">
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="select-map-container w-full h-full cursor-crosshair" />
           </div>

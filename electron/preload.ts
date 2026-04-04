@@ -28,6 +28,9 @@ const api = {
     exportData: (data: any) => ipcRenderer.invoke('file:exportData', data),
     importData: () => ipcRenderer.invoke('file:importData'),
   },
+  map: {
+    searchLocation: (query: string) => ipcRenderer.invoke('map:searchLocation', query),
+  },
   store: {
     get: (key: string) => ipcRenderer.invoke('store:get', key),
     set: (key: string, value: any) => ipcRenderer.invoke('store:set', key, value),
