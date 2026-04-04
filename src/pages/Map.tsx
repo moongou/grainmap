@@ -11,6 +11,14 @@ interface MapProps {
   onLogout: () => void;
 }
 
+interface GroupedFootprint {
+  key: string;
+  photo: Photo;
+  count: number;
+  latitude: number;
+  longitude: number;
+}
+
 // 默认中心位置 — Leaflet uses [lat, lng]
 const DEFAULT_CENTER: [number, number] = [19.188947, 109.778137];
 const DEFAULT_ZOOM = 9;
@@ -33,6 +41,45 @@ class TencentTileLayer extends TileLayer {
 const OSM_TILE_URL = 'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 const getTodayDate = () => new Date().toISOString().slice(0, 10);
+
+const getFootprintGridSize = (zoom: number) => {
+  if (zoom >= 15) return 0;
+  if (zoom >= 11) return 0.08;
+  if (zoom >= 8) return 0.25;
+  return 0.8;
+};
+
+const aggregateFootprintsByZoom = (footprints: GroupedFootprint[], zoom: number): GroupedFootprint[] => {
+  const gridSize = getFootprintGridSize(zoom);
+  if (gridSize === 0) {
+    return footprints;
+  }
+
+  const buckets = new globalThis.Map<string, GroupedFootprint[]>();
+  for (const footprint of footprints) {
+    const latBucket = Math.floor(footprint.latitude / gridSize);
+    const lngBucket = Math.floor(footprint.longitude / gridSize);
+    const bucketKey = `${latBucket}:${lngBucket}`;
+    const current = buckets.get(bucketKey) || [];
+    current.push(footprint);
+    buckets.set(bucketKey, current);
+  }
+
+  return Array.from(buckets.entries()).map(([bucketKey, items]) => {
+    const count = items.reduce((sum, item) => sum + item.count, 0);
+    const latitude = items.reduce((sum, item) => sum + item.latitude * item.count, 0) / count;
+    const longitude = items.reduce((sum, item) => sum + item.longitude * item.count, 0) / count;
+    const representative = items.reduce((largest, item) => item.count > largest.count ? item : largest, items[0]);
+
+    return {
+      key: `${bucketKey}:${representative.photo.id}`,
+      photo: representative.photo,
+      count,
+      latitude,
+      longitude,
+    };
+  });
+};
 
 function Map({ user, onLogout }: MapProps) {
   const navigate = useNavigate();
@@ -65,6 +112,7 @@ function Map({ user, onLogout }: MapProps) {
   const [error, setError] = useState('');
   const [mapType, setMapType] = useState<'standard' | 'satellite'>('standard');
   const [mapProvider, setMapProvider] = useState<MapProvider>('tencent');
+  const [mapZoom, setMapZoom] = useState(DEFAULT_ZOOM);
   const [isEditing, setIsEditing] = useState(false);
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
   const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
@@ -319,6 +367,10 @@ function Map({ user, onLogout }: MapProps) {
 
         mapRef.current = map;
         mapInitializedRef.current = true;
+        setMapZoom(map.getZoom());
+        map.on('zoomend', () => {
+          setMapZoom(map.getZoom());
+        });
         console.log('Map initialized successfully');
         setMapLoading(false);
       } catch (error) {
@@ -505,7 +557,7 @@ function Map({ user, onLogout }: MapProps) {
     selectedAlbumId ? photos.filter(p => p.albumId === selectedAlbumId) : photos
   ), [photos, selectedAlbumId]);
 
-  const groupedPhotos = useMemo(() => {
+  const groupedPhotos = useMemo<GroupedFootprint[]>(() => {
     const groups = new globalThis.Map<string, Photo[]>();
     for (const photo of filteredPhotos) {
       const key = `${photo.latitude.toFixed(6)},${photo.longitude.toFixed(6)}`;
@@ -513,8 +565,16 @@ function Map({ user, onLogout }: MapProps) {
       current.push(photo);
       groups.set(key, current);
     }
-    return Array.from(groups.entries()).map(([key, items]) => ({ key, photo: items[0], count: items.length }));
+    return Array.from(groups.entries()).map(([key, items]) => ({
+      key,
+      photo: items[0],
+      count: items.length,
+      latitude: items[0].latitude,
+      longitude: items[0].longitude,
+    }));
   }, [filteredPhotos]);
+
+  const displayedFootprints = useMemo(() => aggregateFootprintsByZoom(groupedPhotos, mapZoom), [groupedPhotos, mapZoom]);
 
 
   const openPhoto = (photo: Photo) => {
@@ -830,8 +890,8 @@ function Map({ user, onLogout }: MapProps) {
       return;
     }
 
-    groupedPhotos.forEach(({ photo, count }) => {
-      const marker = L.marker([photo.latitude, photo.longitude], {
+    displayedFootprints.forEach(({ photo, count, latitude, longitude }) => {
+      const marker = L.marker([latitude, longitude], {
         icon: createFootprintIcon(),
       });
       marker.on('click', () => openPhoto(photo));
@@ -839,7 +899,7 @@ function Map({ user, onLogout }: MapProps) {
       marker.addTo(mapRef.current!);
       markersRef.current.push(marker);
     });
-  }, [groupedPhotos, navigate, openPhoto, previewPhoto, selectedAlbumId]);
+  }, [displayedFootprints, navigate, openPhoto, previewPhoto, selectedAlbumId]);
 
   // Handle preview thumbnail and leader line
   useEffect(() => {

@@ -73,13 +73,13 @@
     "mac": {
       "identity": null,
       "category": "public.app-category.photography",
-      "icon": "public/assets/app-ico.jpg",
+      "icon": "public/assets/app-icon.png",
       "target": [
         "dmg"
       ]
     },
     "win": {
-      "icon": "public/assets/app-ico.jpg",
+      "icon": "public/assets/app-icon.png",
       "target": [
         {
           "target": "nsis",
