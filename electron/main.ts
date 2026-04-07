@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu } from 'electron'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import Database from './database'
@@ -8,6 +8,8 @@ import archiver from 'archiver'
 import extract from 'extract-zip'
 import exifr from 'exifr'
 import * as piexif from 'piexifjs'
+
+const appVersion = 'v4.20'
 
 const FALLBACK_GEOCODER_URL = 'https://nominatim.openstreetmap.org/search'
 
@@ -87,10 +89,17 @@ const createWindow = () => {
       show: true,
     })
 
+    // Try multiple paths for the splash image (dev and packaged)
+    const splashImagePath = fs.existsSync(path.join(app.getAppPath(), 'dist', 'assets', 'installation-guide.png'))
+      ? path.join(app.getAppPath(), 'dist', 'assets', 'installation-guide.png')
+      : fs.existsSync(path.join(app.getAppPath(), 'public', 'assets', 'installation-guide.png'))
+        ? path.join(app.getAppPath(), 'public', 'assets', 'installation-guide.png')
+        : path.join(app.getAppPath(), 'assets', 'installation-guide.png')
+
     splash.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
       <html>
         <body style="margin:0;background:transparent;display:flex;align-items:center;justify-content:center;overflow:hidden;">
-          <img src="file://${path.join(app.getAppPath(), 'public', 'assets', 'installation-guide.png')}" style="width:100%;height:100%;object-fit:cover;opacity:1;transition:opacity .6s ease;" id="splash" />
+          <img src="file://${splashImagePath}" style="width:100%;height:100%;object-fit:cover;opacity:1;transition:opacity .6s ease;" id="splash" />
           <script>
             setTimeout(() => {
               document.getElementById('splash').style.opacity = '0';
@@ -125,6 +134,30 @@ app.whenReady().then(async () => {
 
   db = new Database()
   db.init()
+
+  // Setup application menu (for Windows)
+  const template: any = [
+    {
+      label: '帮助',
+      submenu: [
+        {
+          label: '关于',
+          click: () => {
+            dialog.showMessageBox({
+              type: 'info',
+              title: '关于 Grainmap',
+              message: 'Grainmap',
+              detail: `版本：${appVersion}\n\n照片地图应用，让你可以在地图上标记和记录你的照片故事。\n\n© 2026 Grainmap. All rights reserved.`,
+              buttons: ['确定'],
+            })
+          },
+        },
+      ],
+    },
+  ]
+
+  const menu = Menu.buildFromTemplate(template)
+  Menu.setApplicationMenu(menu)
 
   // Handle app-data protocol
   protocol.handle('app-data', (request) => {
@@ -418,8 +451,17 @@ ipcMain.handle('file:deleteImage', async (_, filePath: string) => {
 })
 
 ipcMain.handle('file:exportData', async (_, rawData: any) => {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, -5) // YYYYMMDDHHmmss
+  let defaultFileName = `grainmap-export-${timestamp}.grainmap`
+
+  // Use album name if exporting a single album
+  if (rawData.album && rawData.album.name) {
+    const safeAlbumName = rawData.album.name.replace(/[/\\:*?"<>|]/g, '_')
+    defaultFileName = `${safeAlbumName}-${timestamp}.grainmap`
+  }
+
   const result = await dialog.showSaveDialog({
-    defaultPath: `grainmap-export-${new Date().toISOString().split('T')[0]}.grainmap`,
+    defaultPath: defaultFileName,
     filters: [{ name: 'Grainmap Export', extensions: ['grainmap'] }],
   })
 

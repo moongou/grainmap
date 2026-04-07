@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { X, ArrowRight, Check } from 'lucide-react';
+import installationGuideImage from '../assets/installation-guide.png';
 
 interface InstallationGuideProps {
   onClose: () => void;
@@ -12,22 +13,22 @@ function InstallationGuide({ onClose }: InstallationGuideProps) {
     {
       title: '欢迎使用 Grainmap',
       description: 'Grainmap 是一个照片地图应用，让你可以在地图上标记和记录你的照片故事。',
-      image: '/assets/installation-guide.png',
+      image: installationGuideImage,
     },
     {
       title: '配置高德地图 API Key',
       description: '请在设置中配置你的高德地图 API Key，以使用地图功能。',
-      image: '/assets/installation-guide.png',
+      image: installationGuideImage,
     },
     {
       title: '配置 AI 文案生成',
       description: '在设置页面配置 AI 提供商和 API Key，以使用 AI 生成文案功能。',
-      image: '/assets/installation-guide.png',
+      image: installationGuideImage,
     },
     {
       title: '开始使用',
       description: '点击添加按钮上传照片，并在地图上标记位置。',
-      image: '/assets/installation-guide.png',
+      image: installationGuideImage,
     },
   ];
 

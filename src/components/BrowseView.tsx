@@ -4,7 +4,7 @@ import L, { TileLayer } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Photo, Album } from '../types';
 
-type SortMode = 'order' | 'random' | 'distance';
+type SortMode = 'order' | 'random' | 'distance' | 'time';
 
 interface BrowseViewProps {
   photos: Photo[];
@@ -42,6 +42,18 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   return R * c;
 }
+
+// Calculate flight duration based on distance (in km)
+// Short distance: 1.5s, Medium: 2.5s, Long: 4s max
+function calculateFlightDuration(distanceKm: number): number {
+  if (distanceKm < 1) return 1.5;
+  if (distanceKm < 10) return 2.0;
+  if (distanceKm < 50) return 2.5;
+  if (distanceKm < 100) return 3.0;
+  if (distanceKm < 500) return 3.5;
+  return 4.0; // max 4 seconds
+}
+
 
 export default function BrowseView({
   photos,
@@ -86,6 +98,12 @@ export default function BrowseView({
           const distA = calculateDistance(photos[currentIndex].latitude, photos[currentIndex].longitude, a.latitude, a.longitude);
           const distB = calculateDistance(photos[currentIndex].latitude, photos[currentIndex].longitude, b.latitude, b.longitude);
           return distA - distB;
+        });
+      case 'time':
+        return arr.sort((a, b) => {
+          const dateA = a.photoDate ? new Date(a.photoDate).getTime() : new Date(a.createdAt).getTime();
+          const dateB = b.photoDate ? new Date(b.photoDate).getTime() : new Date(b.createdAt).getTime();
+          return dateA - dateB;
         });
       default:
         return arr;
@@ -132,9 +150,16 @@ export default function BrowseView({
   useEffect(() => {
     if (!mapRef.current || isFullscreen) return;
 
+    // When map is auxiliary view (photo is main), show Hainan province at zoom 9
+    // When map is main view, start at current photo location
+    const initialCenter: L.LatLngTuple = isMapMain
+      ? [displayPhoto?.latitude || 19.188947, displayPhoto?.longitude || 109.778137]
+      : [19.2, 109.75]; // Hainan province center
+    const initialZoom = isMapMain ? 15 : 9;
+
     const map = L.map(mapRef.current, {
-      center: [displayPhoto?.latitude || 19.188947, displayPhoto?.longitude || 109.778137],
-      zoom: 15,
+      center: initialCenter,
+      zoom: initialZoom,
       zoomControl: false,
       attributionControl: false,
     });
@@ -152,22 +177,110 @@ export default function BrowseView({
     };
   }, [isFullscreen, mapProvider, buildTileLayer, isMapMain]);
 
+  // Calculate flight duration for auxiliary map view (1-3 seconds based on distance)
+  const calculateAuxFlightDuration = (distanceKm: number): number => {
+    if (distanceKm < 1) return 1.0;
+    if (distanceKm < 10) return 1.5;
+    if (distanceKm < 50) return 2.0;
+    if (distanceKm < 100) return 2.5;
+    return 3.0; // max 3 seconds
+  };
+
+  // Calculate overview zoom for auxiliary view (7-11 based on distance)
+  const calculateAuxOverviewZoom = (distanceKm: number): number => {
+    if (distanceKm < 1) return 11;
+    if (distanceKm < 10) return 10;
+    if (distanceKm < 50) return 9;
+    if (distanceKm < 100) return 8;
+    return 7; // min zoom 7 for very far distances
+  };
+
   // Update map when photo changes
   useEffect(() => {
-    if (!mapInstanceRef.current || !displayPhoto) return;
+    if (!mapInstanceRef.current || !displayPhoto || !mapRef.current) return;
 
-    mapInstanceRef.current.setView([displayPhoto.latitude, displayPhoto.longitude], 15, { animate: true });
+    const map = mapInstanceRef.current;
+    const currentCenter = map.getCenter();
+    const targetLatLng: [number, number] = [displayPhoto.latitude, displayPhoto.longitude];
+    const distance = calculateDistance(
+      currentCenter.lat, currentCenter.lng,
+      displayPhoto.latitude, displayPhoto.longitude
+    );
 
-    if (mapMarkerRef.current) {
-      mapMarkerRef.current.remove();
+    let flightDuration = calculateFlightDuration(distance);
+
+    // When map is main view, use HOME-style two-stage animation
+    if (isMapMain) {
+      // Cap at 3.5 seconds for main view
+      flightDuration = Math.min(flightDuration, 3.5);
+
+      const overviewZoom = distance < 10 ? 12 : distance < 50 ? 10 : 9;
+
+      // Two-stage animation: zoom out to overview, then fly to photo with zoom in
+      const onOverviewEnd = () => {
+        map.off('moveend', onOverviewEnd);
+        // Second stage: fly to photo at zoom 16
+        map.flyTo(targetLatLng, 16, {
+          animate: true,
+          duration: flightDuration * 0.6,
+          easeLinearity: 0.3,
+        });
+      };
+
+      map.on('moveend', onOverviewEnd);
+      // First stage: zoom out to overview
+      map.flyTo(targetLatLng, overviewZoom, {
+        animate: true,
+        duration: flightDuration * 0.4,
+        easeLinearity: 0.2,
+      });
+
+      // Show marker after animation
+      setTimeout(() => {
+        if (mapMarkerRef.current) mapMarkerRef.current.remove();
+        if (displayPhoto.latitude && displayPhoto.longitude) {
+          mapMarkerRef.current = L.marker(targetLatLng, {
+            icon: createMarkerIcon(displayPhoto),
+          }).addTo(map);
+        }
+      }, flightDuration * 1000);
+      return;
     }
 
-    if (displayPhoto.latitude && displayPhoto.longitude) {
-      mapMarkerRef.current = L.marker([displayPhoto.latitude, displayPhoto.longitude], {
-        icon: createMarkerIcon(displayPhoto),
-      }).addTo(mapInstanceRef.current);
-    }
-  }, [displayPhoto, isMapMain]);
+    // Auxiliary view (photo is main): two-stage animation with Hainan center as overview
+    const auxFlightDuration = calculateAuxFlightDuration(distance);
+    const auxOverviewZoom = calculateAuxOverviewZoom(distance);
+    const hainanCenter: [number, number] = [19.2, 109.75];
+
+    // Two-stage: first zoom out to Hainan center at overview zoom, then fly to target
+    const onAuxOverviewEnd = () => {
+      map.off('moveend', onAuxOverviewEnd);
+      // Second stage: fly to target photo location at zoom 15
+      map.flyTo(targetLatLng, 15, {
+        animate: true,
+        duration: auxFlightDuration * 0.55,
+        easeLinearity: 0.3,
+      });
+    };
+
+    map.on('moveend', onAuxOverviewEnd);
+    // First stage: zoom out to Hainan center
+    map.flyTo(hainanCenter, auxOverviewZoom, {
+      animate: true,
+      duration: auxFlightDuration * 0.45,
+      easeLinearity: 0.2,
+    });
+
+    // Show marker after animation
+    setTimeout(() => {
+      if (mapMarkerRef.current) mapMarkerRef.current.remove();
+      if (displayPhoto.latitude && displayPhoto.longitude) {
+        mapMarkerRef.current = L.marker(targetLatLng, {
+          icon: createMarkerIcon(displayPhoto),
+        }).addTo(map);
+      }
+    }, auxFlightDuration * 1000);
+  }, [displayPhoto?.id, isMapMain]);
 
   // Handle layout changes and map resize
   useEffect(() => {
@@ -178,14 +291,14 @@ export default function BrowseView({
   }, [isMapMain, isFullscreen, photoPanelSide]);
 
   const handlePrevious = useCallback(() => {
-    const newIndex = (currentIndex - 1 + photos.length) % photos.length;
+    const newIndex = (currentIndex - 1 + sortedPhotos.length) % sortedPhotos.length;
     setCurrentIndex(newIndex);
-  }, [currentIndex, photos.length]);
+  }, [currentIndex, sortedPhotos.length]);
 
   const handleNext = useCallback(() => {
-    const newIndex = (currentIndex + 1) % photos.length;
+    const newIndex = (currentIndex + 1) % sortedPhotos.length;
     setCurrentIndex(newIndex);
-  }, [currentIndex, photos.length]);
+  }, [currentIndex, sortedPhotos.length]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -249,16 +362,16 @@ export default function BrowseView({
     setCurrentIndex(index);
   };
 
-  // Layout: Left = photo (70%), Right top = map, Right bottom = info
-  const photoPanelWidth = isFullscreen ? 'w-full' : 'w-[70%]';
-  const sidePanelWidth = isFullscreen ? 'w-0' : 'w-[30%] min-w-[340px]';
+  // Layout: Left = photo (67%), Right top = map, Right bottom = info (adjusted: -3% photo, +3% side)
+  const photoPanelWidth = isFullscreen ? 'w-full' : 'w-[67%]';
+  const sidePanelWidth = isFullscreen ? 'w-0' : 'w-[33%] min-w-[380px]';
 
   return (
     <div className={`flex flex-col h-screen bg-white ${isFullscreen ? 'fixed inset-0 z-[3000]' : ''}`}>
       {/* Thumbnail Navigation Bar */}
       <div className="h-14 border-b border-gray-200 bg-gray-50 flex items-center px-4 overflow-x-auto flex-shrink-0" ref={thumbnailBarRef}>
         <div className="flex items-center gap-2 min-w-max">
-          {photos.map((photo, index) => (
+          {sortedPhotos.map((photo, index) => (
             <button
               key={photo.id}
               onClick={() => handleThumbnailClick(index)}
@@ -476,18 +589,18 @@ export default function BrowseView({
             <span>切换布局</span>
           </button>
 
-          <div className="relative">
+          <div className="relative z-[999]">
             <button
               onClick={() => setShowSortMenu(!showSortMenu)}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-medium text-gray-700 transition-colors"
             >
               <SortAsc className="w-3.5 h-3.5" />
               <span>
-                {sortMode === 'order' ? '顺序' : sortMode === 'random' ? '随机' : '距离'}
+                {sortMode === 'order' ? '顺序' : sortMode === 'random' ? '随机' : sortMode === 'distance' ? '距离' : '时间'}
               </span>
             </button>
             {showSortMenu && (
-              <div className="absolute bottom-full left-0 mb-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[100px] z-10">
+              <div className="absolute bottom-full left-0 mb-1 bg-white rounded-lg shadow-2xl border border-gray-200 py-1 min-w-[100px] z-[9999]">
                 <button
                   onClick={() => { setSortMode('order'); setShowSortMenu(false); }}
                   className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 ${sortMode === 'order' ? 'text-primary-600 font-medium' : 'text-gray-700'}`}
@@ -508,6 +621,13 @@ export default function BrowseView({
                 >
                   <MapPin className="w-3.5 h-3.5 inline mr-2" />
                   最近距离
+                </button>
+                <button
+                  onClick={() => { setSortMode('time'); setShowSortMenu(false); }}
+                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 ${sortMode === 'time' ? 'text-primary-600 font-medium' : 'text-gray-700'}`}
+                >
+                  <SortAsc className="w-3.5 h-3.5 inline mr-2" />
+                  时间顺序
                 </button>
               </div>
             )}

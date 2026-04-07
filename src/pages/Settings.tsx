@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Key, Globe, Bot, AlertCircle, MapPin, Search, CheckCircle2, HelpCircle, Download, Upload, Database, X } from 'lucide-react';
 import { User, AIConfig, MapProvider, Album, AIProvider } from '../types';
 import OperationGuide from '../components/OperationGuide';
+import grainmapLogo from '../assets/grainmap-logo.jpg';
 
 interface SettingsProps {
   user: User;
@@ -412,7 +413,7 @@ function Settings({ user }: SettingsProps) {
             <div className="bg-white rounded-3xl shadow-xl p-5 border border-gray-100 sticky top-0 overflow-hidden">
               <div className="rounded-[28px] bg-gradient-to-b from-primary-50 to-white p-4 border border-primary-100/60">
                 <img
-                  src="/assets/grainmap-logo.jpg"
+                  src={grainmapLogo}
                   alt="Grainmap Logo"
                   className="block w-full max-h-[22rem] rounded-2xl object-contain bg-white"
                 />
@@ -687,7 +688,7 @@ function Settings({ user }: SettingsProps) {
             <div className="card !p-4">
               <h2 className="text-sm font-semibold text-gray-900 mb-2">关于 Grainmap</h2>
               <div className="text-[11px] text-gray-600 space-y-1">
-                <p>版本：1.0.0</p>
+                <p>版本：v4.20</p>
                 <p>Grainmap 是一个照片地图应用，让你可以在地图上标记和记录你的照片故事。</p>
                 <p>所有数据都存储在本地，保护你的隐私。</p>
               </div>
